@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Simple POS</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Simple POS</h1>
+    <nav>
+      <button class="tab active" data-view="register">Register</button>
+      <button class="tab" data-view="products">Products</button>
+      <button class="tab" data-view="sales">Sales</button>
+      <button class="tab" data-view="settings">Settings</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Register -->
+    <section id="view-register" class="view active">
+      <div class="catalog">
+        <div class="catalog-controls">
+          <input id="search" type="search" placeholder="Search products or scan SKU…" autocomplete="off">
+          <div id="categories" class="chips"></div>
+        </div>
+        <div id="product-grid" class="product-grid"></div>
+      </div>
+
+      <aside class="cart">
+        <h2>Current Sale</h2>
+        <ul id="cart-items" class="cart-items"></ul>
+        <div class="cart-totals">
+          <div><span>Subtotal</span><span id="subtotal">$0.00</span></div>
+          <div>
+            <span>Discount
+              <select id="discount-type">
+                <option value="pct">%</option>
+                <option value="amt">$</option>
+              </select>
+              <input id="discount-value" type="number" min="0" step="0.01" value="0">
+            </span>
+            <span id="discount">-$0.00</span>
+          </div>
+          <div><span>Tax (<span id="tax-rate-label">0</span>%)</span><span id="tax">$0.00</span></div>
+          <div class="grand"><span>Total</span><span id="total">$0.00</span></div>
+        </div>
+        <div class="cart-actions">
+          <button id="clear-cart" class="secondary">Clear</button>
+          <button id="checkout" class="primary" disabled>Charge</button>
+        </div>
+      </aside>
+    </section>
+
+    <!-- Products -->
+    <section id="view-products" class="view">
+      <form id="product-form" class="card form-grid">
+        <input type="hidden" id="p-id">
+        <label>Name <input id="p-name" required></label>
+        <label>SKU <input id="p-sku"></label>
+        <label>Category <input id="p-category" list="category-list" required></label>
+        <datalist id="category-list"></datalist>
+        <label>Price <input id="p-price" type="number" min="0" step="0.01" required></label>
+        <label>Stock <input id="p-stock" type="number" min="0" step="1" value="0" required></label>
+        <div class="form-actions">
+          <button type="button" id="p-cancel" class="secondary">Cancel</button>
+          <button type="submit" class="primary" id="p-submit">Add Product</button>
+        </div>
+      </form>
+      <div class="card">
+        <table class="table">
+          <thead><tr><th>Name</th><th>SKU</th><th>Category</th><th class="num">Price</th><th class="num">Stock</th><th></th></tr></thead>
+          <tbody id="product-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Sales -->
+    <section id="view-sales" class="view">
+      <div class="stats" id="sales-stats"></div>
+      <div class="card">
+        <table class="table">
+          <thead><tr><th>Receipt #</th><th>Date</th><th class="num">Items</th><th>Payment</th><th class="num">Total</th><th></th></tr></thead>
+          <tbody id="sales-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Settings -->
+    <section id="view-settings" class="view">
+      <form id="settings-form" class="card form-grid">
+        <label>Store name <input id="s-store" required></label>
+        <label>Tax rate (%) <input id="s-tax" type="number" min="0" step="0.01" required></label>
+        <label>Currency symbol <input id="s-currency" maxlength="3" required></label>
+        <div class="form-actions">
+          <button type="submit" class="primary">Save</button>
+        </div>
+      </form>
+      <div class="card danger-zone">
+        <h3>Data</h3>
+        <p>All data is stored in this browser.</p>
+        <button id="export-data" class="secondary">Export JSON</button>
+        <button id="reset-data" class="danger">Reset all data</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- Checkout dialog -->
+  <dialog id="checkout-dialog">
+    <form method="dialog" id="checkout-form">
+      <h2>Charge <span id="co-total"></span></h2>
+      <div class="pay-methods">
+        <label><input type="radio" name="payment" value="cash" checked> Cash</label>
+        <label><input type="radio" name="payment" value="card"> Card</label>
+      </div>
+      <div id="cash-fields">
+        <label>Amount tendered <input id="co-tendered" type="number" min="0" step="0.01"></label>
+        <div class="quick-cash" id="quick-cash"></div>
+        <p>Change due: <strong id="co-change">$0.00</strong></p>
+      </div>
+      <div class="form-actions">
+        <button value="cancel" class="secondary" formnovalidate>Cancel</button>
+        <button id="co-confirm" value="confirm" class="primary">Complete Sale</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Receipt dialog -->
+  <dialog id="receipt-dialog">
+    <div id="receipt" class="receipt"></div>
+    <div class="form-actions no-print">
+      <button id="print-receipt" class="secondary">Print</button>
+      <button id="close-receipt" class="primary">Done</button>
+    </div>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
