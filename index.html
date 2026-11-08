@@ -11,8 +11,9 @@
     <h1>Simple POS</h1>
     <nav>
       <button class="tab active" data-view="register">Register</button>
-      <button class="tab" data-view="products">Products</button>
+      <button class="tab" data-view="products">Products <span id="low-badge" class="badge" hidden></span></button>
       <button class="tab" data-view="sales">Sales</button>
+      <button class="tab" data-view="reports">Reports</button>
       <button class="tab" data-view="settings">Settings</button>
     </nav>
   </header>
@@ -37,7 +38,7 @@
             <span>Discount
               <select id="discount-type">
                 <option value="pct">%</option>
-                <option value="amt">$</option>
+                <option value="amt" id="discount-amt-label">$</option>
               </select>
               <input id="discount-value" type="number" min="0" step="0.01" value="0">
             </span>
@@ -69,6 +70,10 @@
         </div>
       </form>
       <div class="card">
+        <div class="table-toolbar">
+          <span id="low-stock-summary" class="muted"></span>
+          <label class="inline"><input type="checkbox" id="low-only"> Show low stock only</label>
+        </div>
         <table class="table">
           <thead><tr><th>Name</th><th>SKU</th><th>Category</th><th class="num">Price</th><th class="num">Stock</th><th></th></tr></thead>
           <tbody id="product-table"></tbody>
@@ -81,9 +86,58 @@
       <div class="stats" id="sales-stats"></div>
       <div class="card">
         <table class="table">
-          <thead><tr><th>Receipt #</th><th>Date</th><th class="num">Items</th><th>Payment</th><th class="num">Total</th><th></th></tr></thead>
+          <thead><tr><th>Receipt #</th><th>Date</th><th class="num">Items</th><th>Payment</th><th class="num">Total</th><th>Status</th><th></th></tr></thead>
           <tbody id="sales-table"></tbody>
         </table>
+      </div>
+    </section>
+
+    <!-- Reports -->
+    <section id="view-reports" class="view">
+      <div class="card report-controls">
+        <label>From <input type="date" id="r-from"></label>
+        <label>To <input type="date" id="r-to"></label>
+        <div class="chips" id="r-presets">
+          <button class="chip" data-range="today">Today</button>
+          <button class="chip" data-range="7">Last 7 days</button>
+          <button class="chip" data-range="30">Last 30 days</button>
+          <button class="chip" data-range="all">All time</button>
+        </div>
+        <div class="form-actions">
+          <button id="csv-sales" class="secondary">Export sales CSV</button>
+          <button id="csv-items" class="secondary">Export items CSV</button>
+        </div>
+      </div>
+      <div class="stats" id="report-stats"></div>
+      <div class="report-grid">
+        <div class="card">
+          <h3>Payment methods</h3>
+          <table class="table">
+            <thead><tr><th>Method</th><th class="num">Sales</th><th class="num">Total</th><th class="num">Refunds</th><th class="num">Net</th></tr></thead>
+            <tbody id="r-payments"></tbody>
+          </table>
+        </div>
+        <div class="card">
+          <h3>Categories</h3>
+          <table class="table">
+            <thead><tr><th>Category</th><th class="num">Qty sold</th><th class="num">Gross sales</th></tr></thead>
+            <tbody id="r-categories"></tbody>
+          </table>
+        </div>
+        <div class="card">
+          <h3>Top products</h3>
+          <table class="table">
+            <thead><tr><th>Product</th><th class="num">Qty sold</th><th class="num">Refunded</th><th class="num">Gross sales</th></tr></thead>
+            <tbody id="r-products"></tbody>
+          </table>
+        </div>
+        <div class="card">
+          <h3>By day</h3>
+          <table class="table">
+            <thead><tr><th>Date</th><th class="num">Sales</th><th class="num">Total</th><th class="num">Refunds</th><th class="num">Net</th></tr></thead>
+            <tbody id="r-days"></tbody>
+          </table>
+        </div>
       </div>
     </section>
 
@@ -93,6 +147,7 @@
         <label>Store name <input id="s-store" required></label>
         <label>Tax rate (%) <input id="s-tax" type="number" min="0" step="0.01" required></label>
         <label>Currency symbol <input id="s-currency" maxlength="3" required></label>
+        <label>Low-stock alert at <input id="s-low" type="number" min="0" step="1" required></label>
         <div class="form-actions">
           <button type="submit" class="primary">Save</button>
         </div>
@@ -101,6 +156,8 @@
         <h3>Data</h3>
         <p>All data is stored in this browser.</p>
         <button id="export-data" class="secondary">Export JSON</button>
+        <button id="import-data" class="secondary">Import JSON</button>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
         <button id="reset-data" class="danger">Reset all data</button>
       </div>
     </section>
@@ -120,7 +177,7 @@
         <p>Change due: <strong id="co-change">$0.00</strong></p>
       </div>
       <div class="form-actions">
-        <button value="cancel" class="secondary" formnovalidate>Cancel</button>
+        <button type="button" id="co-cancel" class="secondary">Cancel</button>
         <button id="co-confirm" value="confirm" class="primary">Complete Sale</button>
       </div>
     </form>
@@ -133,6 +190,24 @@
       <button id="print-receipt" class="secondary">Print</button>
       <button id="close-receipt" class="primary">Done</button>
     </div>
+  </dialog>
+
+  <!-- Refund dialog -->
+  <dialog id="refund-dialog">
+    <form id="refund-form">
+      <h2>Refund receipt #<span id="rf-id"></span></h2>
+      <table class="table">
+        <thead><tr><th>Item</th><th class="num">Refundable</th><th class="num">Refund qty</th></tr></thead>
+        <tbody id="rf-lines"></tbody>
+      </table>
+      <label class="inline"><input type="checkbox" id="rf-restock" checked> Return items to stock</label>
+      <p>Refund to <span id="rf-method"></span>: <strong id="rf-amount"></strong></p>
+      <div class="form-actions">
+        <button type="button" id="rf-all" class="secondary">Refund all</button>
+        <button type="button" id="rf-cancel" class="secondary">Cancel</button>
+        <button type="submit" id="rf-confirm" class="danger">Refund</button>
+      </div>
+    </form>
   </dialog>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

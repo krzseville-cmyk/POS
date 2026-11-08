@@ -172,6 +172,34 @@ main { flex: 1; padding: 16px; min-height: 0; }
 .stat .label { color: var(--muted); font-size: .85rem; }
 .stat .value { font-size: 1.5rem; font-weight: 700; margin-top: 4px; }
 .danger-zone button { margin-right: 8px; }
+.muted { color: var(--muted); }
+label.inline { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
+.table-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.table tr.low td.stock-cell { color: var(--danger); font-weight: 600; }
+.badge {
+  display: inline-block;
+  min-width: 18px;
+  padding: 0 5px;
+  margin-left: 2px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: .75rem;
+  line-height: 18px;
+  text-align: center;
+}
+.status { font-size: .8rem; padding: 2px 8px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 15%, transparent); }
+.status.refunded { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.status.partial { color: #b45309; background: color-mix(in srgb, #f59e0b 15%, transparent); }
+.status.paid { color: var(--success); background: color-mix(in srgb, var(--success) 12%, transparent); }
+
+/* Reports */
+.report-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; }
+.report-controls label { display: flex; flex-direction: column; gap: 4px; font-size: .9rem; color: var(--muted); }
+.report-controls .form-actions { margin-left: auto; flex-wrap: wrap; }
+.report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 0 16px; }
+.report-grid h3 { margin: 0 0 8px; font-size: 1rem; }
+#rf-lines input { width: 70px; text-align: right; }
 
 /* Dialogs */
 dialog {
@@ -179,7 +207,7 @@ dialog {
   border-radius: var(--radius);
   background: var(--surface);
   color: var(--text);
-  width: min(420px, calc(100vw - 32px));
+  width: min(460px, calc(100vw - 32px));
   padding: 20px;
 }
 dialog::backdrop { background: rgb(0 0 0 / .45); }
@@ -213,6 +241,8 @@ dialog h2 { margin-top: 0; }
   #view-register.active { grid-template-columns: 1fr; height: auto; }
   .product-grid { max-height: 50vh; }
   .cart { min-height: 360px; }
+  .report-grid { grid-template-columns: 1fr; }
+  .report-controls .form-actions { margin-left: 0; }
 }
 
 @media print {
