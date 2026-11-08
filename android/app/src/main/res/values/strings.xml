@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Simple POS</string>
+    <string name="file_saved">File saved</string>
+    <string name="file_save_failed">Could not save the file</string>
+    <string name="print_job_name">POS receipt</string>
+</resources>

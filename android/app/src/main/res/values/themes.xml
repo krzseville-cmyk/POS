@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="background">#f4f5f7</color>
+    <color name="brand">#2563eb</color>
+    <style name="Theme.SimplePOS" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:colorAccent">@color/brand</item>
+    </style>
+</resources>

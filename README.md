@@ -11,6 +11,27 @@ python3 -m http.server 8000
 # then visit http://localhost:8000
 ```
 
+## Android app
+
+The `android/` folder is an Android app (Kotlin, Android 8.0+) that runs this same POS full screen. The web files in the repository root are copied into the app on every build, so there is only one copy of the POS code to maintain.
+
+Inside the app:
+- **Export JSON / CSV** opens Android's save screen so you choose where the file goes.
+- **Import JSON** opens Android's file picker.
+- **Print** on a receipt uses Android printing (any installed print service, or Save as PDF).
+- **Back** closes an open popup, then returns to the register, then leaves the app.
+- Data is stored on the device and is kept between launches. Uninstalling the app deletes it, so export a backup first.
+
+Build it (needs JDK 17+ and the Android SDK, e.g. from Android Studio):
+
+```sh
+cd android
+./gradlew assembleDebug
+# APK: android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Or open the `android` folder in Android Studio and press Run. To install the APK on a phone, copy it over and open it (allow "Install unknown apps" when asked).
+
 ## Features
 
 - **Register** – product grid with category filters and search; press Enter with a SKU to add it (works with USB barcode scanners). Cart with quantity controls, % or fixed discount, and tax.

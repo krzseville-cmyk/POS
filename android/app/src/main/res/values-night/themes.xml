@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="background">#12151c</color>
+    <color name="brand">#3b82f6</color>
+    <!-- A dark theme also tells the page it is in dark mode (prefers-color-scheme). -->
+    <style name="Theme.SimplePOS" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:colorAccent">@color/brand</item>
+    </style>
+</resources>

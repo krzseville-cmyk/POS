@@ -95,6 +95,11 @@ const dateKey = (d) => {
 };
 
 function download(filename, text, type) {
+  // Inside the Android app, browser downloads don't work; the app asks where to save instead.
+  if (window.AndroidPOS) {
+    window.AndroidPOS.saveFile(filename, text, type);
+    return;
+  }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([text], { type }));
   a.download = filename;
@@ -437,7 +442,7 @@ function showReceipt(sale) {
   if (!receiptDialog.open) receiptDialog.showModal();
 }
 
-$('#print-receipt').addEventListener('click', () => window.print());
+$('#print-receipt').addEventListener('click', () => (window.AndroidPOS ? window.AndroidPOS.print() : window.print()));
 $('#close-receipt').addEventListener('click', () => receiptDialog.close());
 
 // ---------- Products ----------
@@ -888,6 +893,21 @@ function applyStoreName() {
   document.title = `${state.settings.storeName} · POS`;
   $('.topbar h1').textContent = state.settings.storeName;
 }
+
+// Used by the Android app's Back button: close an open popup, then go back to the register.
+// Returns false when there is nothing to close, so the app can exit.
+window.posHandleBack = () => {
+  const open = document.querySelector('dialog[open]');
+  if (open) {
+    open.close();
+    return true;
+  }
+  if (!$('#view-register').classList.contains('active')) {
+    showView('register');
+    return true;
+  }
+  return false;
+};
 
 applyStoreName();
 renderLowStockBadge();
