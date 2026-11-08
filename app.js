@@ -3,22 +3,22 @@
 // ---------- Storage ----------
 const STORAGE_KEY = 'simple-pos-v1';
 
-const DEFAULT_SETTINGS = { storeName: 'My Store', taxRate: 8.25, currency: '$', lowStock: 5 };
+const DEFAULT_SETTINGS = { storeName: 'My Store', taxRate: 8.25, currency: '₱', lowStock: 5 };
 
 const DEFAULT_STATE = {
   settings: { ...DEFAULT_SETTINGS },
   products: [
-    { id: 'p1', name: 'Espresso', sku: '1001', category: 'Coffee', price: 300, stock: 100 },
-    { id: 'p2', name: 'Cappuccino', sku: '1002', category: 'Coffee', price: 450, stock: 100 },
-    { id: 'p3', name: 'Latte', sku: '1003', category: 'Coffee', price: 475, stock: 100 },
-    { id: 'p4', name: 'Cold Brew', sku: '1004', category: 'Coffee', price: 425, stock: 60 },
-    { id: 'p5', name: 'Green Tea', sku: '2001', category: 'Tea', price: 325, stock: 80 },
-    { id: 'p6', name: 'Chai Latte', sku: '2002', category: 'Tea', price: 450, stock: 80 },
-    { id: 'p7', name: 'Croissant', sku: '3001', category: 'Bakery', price: 350, stock: 24 },
-    { id: 'p8', name: 'Blueberry Muffin', sku: '3002', category: 'Bakery', price: 375, stock: 18 },
-    { id: 'p9', name: 'Bagel', sku: '3003', category: 'Bakery', price: 275, stock: 4 },
-    { id: 'p10', name: 'Bottled Water', sku: '4001', category: 'Drinks', price: 200, stock: 48 },
-    { id: 'p11', name: 'Orange Juice', sku: '4002', category: 'Drinks', price: 400, stock: 30 },
+    { id: 'p1', name: 'Espresso', sku: '1001', category: 'Coffee', price: 12000, stock: 100 },
+    { id: 'p2', name: 'Cappuccino', sku: '1002', category: 'Coffee', price: 15000, stock: 100 },
+    { id: 'p3', name: 'Latte', sku: '1003', category: 'Coffee', price: 16000, stock: 100 },
+    { id: 'p4', name: 'Cold Brew', sku: '1004', category: 'Coffee', price: 15500, stock: 60 },
+    { id: 'p5', name: 'Green Tea', sku: '2001', category: 'Tea', price: 11000, stock: 80 },
+    { id: 'p6', name: 'Chai Latte', sku: '2002', category: 'Tea', price: 15000, stock: 80 },
+    { id: 'p7', name: 'Croissant', sku: '3001', category: 'Bakery', price: 9500, stock: 24 },
+    { id: 'p8', name: 'Blueberry Muffin', sku: '3002', category: 'Bakery', price: 11000, stock: 18 },
+    { id: 'p9', name: 'Bagel', sku: '3003', category: 'Bakery', price: 8500, stock: 4 },
+    { id: 'p10', name: 'Bottled Water', sku: '4001', category: 'Drinks', price: 3500, stock: 48 },
+    { id: 'p11', name: 'Orange Juice', sku: '4002', category: 'Drinks', price: 9000, stock: 30 },
   ],
   sales: [],
   nextReceipt: 1001,
@@ -80,7 +80,8 @@ const $ = (sel) => document.querySelector(sel);
 const toCents = (value) => Math.round(parseFloat(value || 0) * 100);
 const money = (cents) => {
   const sign = cents < 0 ? '-' : '';
-  return `${sign}${state.settings.currency}${(Math.abs(cents) / 100).toFixed(2)}`;
+  const amount = (Math.abs(cents) / 100).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${sign}${state.settings.currency}${amount}`;
 };
 const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -345,9 +346,9 @@ $('#checkout').addEventListener('click', () => {
   $('#checkout-form').payment.value = 'cash';
   checkoutDialog.returnValue = '';
 
-  // Quick cash buttons: exact amount plus the next round bills above it.
+  // Quick cash buttons: exact amount plus the next round peso bills above it (₱20 to ₱1,000).
   const options = new Set([total]);
-  for (const bill of [500, 1000, 2000, 5000, 10000]) {
+  for (const bill of [2000, 5000, 10000, 20000, 50000, 100000]) {
     options.add(Math.ceil(total / bill) * bill);
   }
   $('#quick-cash').innerHTML = [...options].sort((a, b) => a - b).slice(0, 5)
@@ -852,7 +853,7 @@ $('#settings-form').addEventListener('submit', (e) => {
   state.settings = {
     storeName: $('#s-store').value.trim() || 'My Store',
     taxRate: Math.max(0, parseFloat($('#s-tax').value) || 0),
-    currency: $('#s-currency').value.trim() || '$',
+    currency: $('#s-currency').value.trim() || '₱',
     lowStock: Math.max(0, parseInt($('#s-low').value, 10) || 0),
   };
   saveState();

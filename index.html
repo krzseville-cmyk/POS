@@ -33,19 +33,19 @@
         <h2>Current Sale</h2>
         <ul id="cart-items" class="cart-items"></ul>
         <div class="cart-totals">
-          <div><span>Subtotal</span><span id="subtotal">$0.00</span></div>
+          <div><span>Subtotal</span><span id="subtotal">₱0.00</span></div>
           <div>
             <span>Discount
               <select id="discount-type">
                 <option value="pct">%</option>
-                <option value="amt" id="discount-amt-label">$</option>
+                <option value="amt" id="discount-amt-label">₱</option>
               </select>
               <input id="discount-value" type="number" min="0" step="0.01" value="0">
             </span>
-            <span id="discount">-$0.00</span>
+            <span id="discount">-₱0.00</span>
           </div>
-          <div><span>Tax (<span id="tax-rate-label">0</span>%)</span><span id="tax">$0.00</span></div>
-          <div class="grand"><span>Total</span><span id="total">$0.00</span></div>
+          <div><span>Tax (<span id="tax-rate-label">0</span>%)</span><span id="tax">₱0.00</span></div>
+          <div class="grand"><span>Total</span><span id="total">₱0.00</span></div>
         </div>
         <div class="cart-actions">
           <button id="clear-cart" class="secondary">Clear</button>
@@ -174,7 +174,7 @@
       <div id="cash-fields">
         <label>Amount tendered <input id="co-tendered" type="number" min="0" step="0.01"></label>
         <div class="quick-cash" id="quick-cash"></div>
-        <p>Change due: <strong id="co-change">$0.00</strong></p>
+        <p>Change due: <strong id="co-change">₱0.00</strong></p>
       </div>
       <div class="form-actions">
         <button type="button" id="co-cancel" class="secondary">Cancel</button>
