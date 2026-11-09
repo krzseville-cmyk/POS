@@ -39,12 +39,15 @@
               <select id="discount-type">
                 <option value="pct">%</option>
                 <option value="amt" id="discount-amt-label">₱</option>
+                <option value="sc">Senior 20%</option>
+                <option value="pwd">PWD 20%</option>
               </select>
               <input id="discount-value" type="number" min="0" step="0.01" value="0">
             </span>
             <span id="discount">-₱0.00</span>
           </div>
-          <div><span>Tax (<span id="tax-rate-label">0</span>%)</span><span id="tax">₱0.00</span></div>
+          <div id="vat-exempt-row" hidden><span>Less: VAT exemption</span><span id="vat-exemption">-₱0.00</span></div>
+          <div><span id="tax-label">VAT</span><span id="tax">₱0.00</span></div>
           <div class="grand"><span>Total</span><span id="total">₱0.00</span></div>
         </div>
         <div class="cart-actions">
@@ -64,6 +67,13 @@
         <datalist id="category-list"></datalist>
         <label>Price <input id="p-price" type="number" min="0" step="0.01" required></label>
         <label>Stock <input id="p-stock" type="number" min="0" step="1" value="0" required></label>
+        <label>VAT
+          <select id="p-vat">
+            <option value="vatable">VATable</option>
+            <option value="exempt">VAT-exempt</option>
+            <option value="zero">Zero-rated</option>
+          </select>
+        </label>
         <div class="form-actions">
           <button type="button" id="p-cancel" class="secondary">Cancel</button>
           <button type="submit" class="primary" id="p-submit">Add Product</button>
@@ -75,7 +85,7 @@
           <label class="inline"><input type="checkbox" id="low-only"> Show low stock only</label>
         </div>
         <table class="table">
-          <thead><tr><th>Name</th><th>SKU</th><th>Category</th><th class="num">Price</th><th class="num">Stock</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>SKU</th><th>Category</th><th>VAT</th><th class="num">Price</th><th class="num">Stock</th><th></th></tr></thead>
           <tbody id="product-table"></tbody>
         </table>
       </div>
@@ -118,6 +128,12 @@
           </table>
         </div>
         <div class="card">
+          <h3>VAT summary</h3>
+          <table class="table">
+            <tbody id="r-vat"></tbody>
+          </table>
+        </div>
+        <div class="card">
           <h3>Categories</h3>
           <table class="table">
             <thead><tr><th>Category</th><th class="num">Qty sold</th><th class="num">Gross sales</th></tr></thead>
@@ -145,7 +161,11 @@
     <section id="view-settings" class="view">
       <form id="settings-form" class="card form-grid">
         <label>Store name <input id="s-store" required></label>
-        <label>Tax rate (%) <input id="s-tax" type="number" min="0" step="0.01" required></label>
+        <label>Address (on receipt) <input id="s-address"></label>
+        <label>VAT Reg. TIN <input id="s-tin" placeholder="000-000-000-00000"></label>
+        <label>Receipt footer <input id="s-footer"></label>
+        <label>VAT rate (%) <input id="s-tax" type="number" min="0" step="0.01" required></label>
+        <label class="inline"><input type="checkbox" id="s-incl"> Prices already include VAT</label>
         <label>Currency symbol <input id="s-currency" maxlength="3" required></label>
         <label>Low-stock alert at <input id="s-low" type="number" min="0" step="1" required></label>
         <div class="form-actions">
@@ -154,7 +174,7 @@
       </form>
       <div class="card danger-zone">
         <h3>Data</h3>
-        <p>All data is stored in this browser.</p>
+        <p>All data is stored on this device.</p>
         <button id="export-data" class="secondary">Export JSON</button>
         <button id="import-data" class="secondary">Import JSON</button>
         <input type="file" id="import-file" accept="application/json,.json" hidden>
@@ -167,16 +187,23 @@
   <dialog id="checkout-dialog">
     <form method="dialog" id="checkout-form">
       <h2>Charge <span id="co-total"></span></h2>
-      <div class="pay-methods">
-        <label><input type="radio" name="payment" value="cash" checked> Cash</label>
-        <label><input type="radio" name="payment" value="card"> Card</label>
+      <div id="co-sc-fields" class="sc-fields" hidden>
+        <p class="muted" id="co-sc-title">Senior citizen details</p>
+        <label>Name <input id="co-sc-name" autocomplete="off"></label>
+        <label>ID number <input id="co-sc-id" autocomplete="off"></label>
       </div>
-      <div id="cash-fields">
-        <label>Amount tendered <input id="co-tendered" type="number" min="0" step="0.01"></label>
-        <div class="quick-cash" id="quick-cash"></div>
-        <p>Change due: <strong id="co-change">₱0.00</strong></p>
+      <ul id="co-payments" class="co-payments"></ul>
+      <div class="pay-methods" id="pay-methods"></div>
+      <label>Amount <input id="co-tendered" type="number" min="0" step="0.01" inputmode="decimal"></label>
+      <label id="co-ref-field" hidden>Reference no. (optional) <input id="co-ref" autocomplete="off"></label>
+      <div class="quick-cash" id="quick-cash"></div>
+      <div class="co-summary">
+        <div><span>Still due</span><strong id="co-remaining">₱0.00</strong></div>
+        <div><span>Change</span><strong id="co-change">₱0.00</strong></div>
       </div>
+      <p id="co-error" class="error" hidden></p>
       <div class="form-actions">
+        <button type="button" id="co-split" class="secondary">Split payment</button>
         <button type="button" id="co-cancel" class="secondary">Cancel</button>
         <button id="co-confirm" value="confirm" class="primary">Complete Sale</button>
       </div>
@@ -201,7 +228,7 @@
         <tbody id="rf-lines"></tbody>
       </table>
       <label class="inline"><input type="checkbox" id="rf-restock" checked> Return items to stock</label>
-      <p>Refund to <span id="rf-method"></span>: <strong id="rf-amount"></strong></p>
+      <p class="rf-to">Refund <strong id="rf-amount"></strong> via <select id="rf-method"></select></p>
       <div class="form-actions">
         <button type="button" id="rf-all" class="secondary">Refund all</button>
         <button type="button" id="rf-cancel" class="secondary">Cancel</button>

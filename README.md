@@ -35,11 +35,13 @@ Or open the `android` folder in Android Studio and press Run. To install the APK
 ## Features
 
 - **Register** – product grid with category filters and search; press Enter with a SKU to add it (works with USB barcode scanners). Cart with quantity controls, % or fixed discount, and tax.
-- **Checkout** – cash (with quick-tender buttons for peso bills and change calculation) or card; printable receipt.
+- **Checkout** – cash (quick-tender buttons for peso bills, change calculation), card, GCash, Maya or QR Ph (with optional reference number). Split one sale across several methods; card and e-wallet parts can't be more than the amount due, and change comes from cash.
+- **VAT (Philippines)** – 12% VAT by default, with prices that already include VAT (can be switched to VAT added on top). Each product is VATable, VAT-exempt or zero-rated. Receipts show VATable sales, VAT, VAT-exempt and zero-rated sales, with V/E/Z after each item, plus the store address and VAT Reg. TIN if set.
+- **Senior citizen / PWD discount** – removes VAT from VATable items, then takes 20% off (it replaces any other discount). The name and ID number are required and printed on the receipt with a signature line.
 - **Products** – add, edit and delete products; stock is decremented on each sale and the register blocks selling more than is in stock. Products at or below the low-stock level are highlighted, counted on the Products tab, and can be filtered.
 - **Sales** – sales history with today's count, net revenue, average ticket and refunds; reopen any receipt.
-- **Refunds & voids** – refund some or all items on a receipt (a full refund voids the sale). The amount is each item's share of the paid total, including discount and tax, and items can optionally go back into stock. Refunds appear on the receipt and in the sale's status.
-- **Reports** – pick a date range (today, 7 days, 30 days, all time or custom) to see sales, gross, discounts, tax, refunds and net revenue, broken down by payment method, category, top products and day. Export sales or line items as CSV.
-- **Settings** – store name, tax rate, currency symbol (Philippine peso ₱ by default) and low-stock level; export all data as JSON, import a JSON backup, or reset.
+- **Refunds & voids** – refund some or all items on a receipt (a full refund voids the sale), choosing which of the sale's payment methods the money goes back through. The amount is each item's share of the paid total, including discount and tax, and items can optionally go back into stock. Refunds appear on the receipt and in the sale's status.
+- **Reports** – pick a date range (today, 7 days, 30 days, all time or custom) to see sales, gross, discounts, SC/PWD discounts, VAT, refunds and net revenue, a VAT summary, and breakdowns by payment method, category, top products and day. Export sales or line items as CSV.
+- **Settings** – store name, address, VAT Reg. TIN, receipt footer, VAT rate, whether prices include VAT, currency symbol (Philippine peso ₱ by default) and low-stock level; export all data as JSON, import a JSON backup, or reset.
 
 Data is saved in the browser's `localStorage`, so it stays on the device you use. Money is stored as integer cents to avoid rounding errors. Data saved by earlier versions loads without changes. Refunds are counted on the day they are made.
