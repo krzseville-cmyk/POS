@@ -60,6 +60,8 @@ const DEFAULT_STATE = {
   nextZ: 1,
   held: [],
   customers: [],
+  stockIns: [],
+  suppliers: [],
 };
 
 // ---------- Storage ----------
@@ -86,6 +88,10 @@ function normalizeState(data) {
       price: Math.max(0, Math.round(Number(p.price) || 0)),
       stock: Math.max(0, Math.round(Number(p.stock) || 0)),
       vat: VAT_TYPES[p.vat] ? p.vat : 'vatable',
+      cost: p.cost == null || p.cost === '' ? null : Math.max(0, Math.round(Number(p.cost) || 0)),
+      variants: cleanOptions(p.variants),
+      addons: cleanOptions(p.addons),
+      image: typeof p.image === 'string' && p.image.startsWith('data:image/') ? p.image : '',
     }));
   const sales = data.sales
     .filter((s) => s && s.id != null && Array.isArray(s.items))
@@ -108,7 +114,16 @@ function normalizeState(data) {
     nextZ: Math.max(Number(data.nextZ) || 1, zReadings.reduce((m, z) => Math.max(m, z.no || 0), 0) + 1),
     held: list(data.held),
     customers,
+    stockIns: list(data.stockIns),
+    suppliers: list(data.suppliers).filter((x) => x && x.id && x.name),
   };
+}
+
+// Sizes and add-ons: [{ name, price }] with price in centavos.
+function cleanOptions(list) {
+  return (Array.isArray(list) ? list : [])
+    .filter((o) => o && String(o.name || '').trim())
+    .map((o) => ({ name: String(o.name).trim(), price: Math.max(0, Math.round(Number(o.price) || 0)) }));
 }
 
 function loadState() {
@@ -340,18 +355,22 @@ function renderGrid() {
   }
   $('#product-grid').innerHTML = items.map((p) => {
     const available = p.stock - inCartQty(p.id);
+    const fromPrice = p.variants.length ? Math.min(...p.variants.map((v) => v.price)) : p.price;
+    const opts = [p.variants.length ? `${p.variants.length} sizes` : '', p.addons.length ? 'add-ons' : ''].filter(Boolean).join(' · ');
     return `
       <button class="product" data-id="${escapeHtml(p.id)}" ${available <= 0 ? 'disabled' : ''}>
+        ${p.image ? `<img src="${p.image}" alt="">` : ''}
         <span class="name">${escapeHtml(p.name)}</span>
+        ${opts ? `<span class="opts">${opts}</span>` : ''}
         <span class="stock ${available <= state.settings.lowStock ? 'low' : ''}">${available <= 0 ? 'Out of stock' : `${available} in stock`}</span>
-        <span class="price">${money(p.price)}</span>
+        <span class="price">${p.variants.length ? 'from ' : ''}${money(fromPrice)}</span>
       </button>`;
   }).join('');
 }
 
 $('#product-grid').addEventListener('click', (e) => {
   const btn = e.target.closest('.product');
-  if (btn) addToCart(btn.dataset.id);
+  if (btn) pickProduct(btn.dataset.id);
 });
 
 $('#search').addEventListener('input', renderGrid);
@@ -363,7 +382,7 @@ $('#search').addEventListener('keydown', (e) => {
   if (!q) return;
   const match = state.products.find((p) => (p.sku || '').toLowerCase() === q) || visibleProducts()[0];
   if (match) {
-    addToCart(match.id);
+    pickProduct(match.id);
     e.target.value = '';
     renderGrid();
   } else {
@@ -443,6 +462,7 @@ function cartLines() {
     return {
       key: l.key, productId: p.id, name: lineName(p, l), sku: p.sku, category: p.category, vat: p.vat,
       price, qty: l.qty, total: price * l.qty, variant: l.variant?.name || null, addons: (l.addons || []).map((a) => a.name),
+      cost: p.cost ?? null,
     };
   });
 }
@@ -781,25 +801,28 @@ function renderProducts() {
   $('#product-table').innerHTML = rows.length
     ? rows.map((p) => `
       <tr class="${isLowStock(p) ? 'low' : ''}">
-        <td>${escapeHtml(p.name)}</td>
+        <td>${p.image ? `<img class="thumb" src="${p.image}" alt="">` : ''}${escapeHtml(p.name)}${p.variants.length || p.addons.length ? ` <small class="muted">${[p.variants.length ? `${p.variants.length} sizes` : '', p.addons.length ? `${p.addons.length} add-ons` : ''].filter(Boolean).join(', ')}</small>` : ''}</td>
         <td>${escapeHtml(p.sku)}</td>
         <td>${escapeHtml(p.category)}</td>
         <td>${VAT_TYPES[p.vat]}</td>
         <td class="num">${money(p.price)}</td>
+        ${isOwner() ? `<td class="num">${p.cost == null ? '—' : money(p.cost)}</td><td class="num">${marginLabel(p)}</td>` : ''}
         <td class="num stock-cell">${p.stock}</td>
         <td class="num">${can('products') ? `
           <button class="link" data-edit="${escapeHtml(p.id)}">Edit</button>
           <button class="link del" data-delete="${escapeHtml(p.id)}">Delete</button>` : ''}
         </td>
       </tr>`).join('')
-    : `<tr><td colspan="7" class="empty">${lowOnly ? 'No low-stock products' : 'No products yet'}</td></tr>`;
+    : `<tr><td colspan="9" class="empty">${lowOnly ? 'No low-stock products' : 'No products yet'}</td></tr>`;
   renderLowStockBadge();
+  if (isOwner()) renderStockIn();
 }
 
 $('#low-only').addEventListener('change', renderProducts);
 
 function resetProductForm() {
   $('#product-form').reset();
+  setPhotoPreview('');
   $('#p-id').value = '';
   $('#p-submit').textContent = 'Add Product';
 }
@@ -818,6 +841,10 @@ $('#product-table').addEventListener('click', (e) => {
     $('#p-price').value = (p.price / 100).toFixed(2);
     $('#p-stock').value = p.stock;
     $('#p-vat').value = p.vat;
+    $('#p-cost').value = p.cost == null ? '' : (p.cost / 100).toFixed(2);
+    $('#p-variants').value = formatOptions(p.variants);
+    $('#p-addons').value = formatOptions(p.addons);
+    setPhotoPreview(p.image);
     $('#p-submit').textContent = 'Save Changes';
     $('#product-form').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     $('#p-name').focus();
@@ -851,7 +878,15 @@ $('#product-form').addEventListener('submit', (e) => {
     price: Math.max(0, toCents($('#p-price').value)),
     stock: Math.max(0, parseInt($('#p-stock').value, 10) || 0),
     vat: VAT_TYPES[$('#p-vat').value] ? $('#p-vat').value : 'vatable',
+    cost: $('#p-cost').value === '' ? null : Math.max(0, toCents($('#p-cost').value)),
+    variants: parseOptions($('#p-variants').value, Math.max(0, toCents($('#p-price').value))),
+    addons: parseOptions($('#p-addons').value),
+    image: photoData,
   };
+  if (data.variants === null || data.addons === null) {
+    toast('Write sizes and add-ons as "Name = price", one per line');
+    return;
+  }
   if (!data.name || !data.category) {
     toast('Name and category are required');
     return;
@@ -1075,6 +1110,11 @@ function reportData() {
     refunds: sumBy(refunds, (r) => r.amount),
   };
   totals.net = totals.total - totals.refunds;
+  // Profit uses sales without VAT, minus cost of goods; refunds take back their share.
+  totals.cogs = sumBy(sales, (s) => saleCogs(s)) - sumBy(refunds, (r) => refundCogs(r));
+  totals.revenueExVat = sumBy(sales, (s) => s.total - s.tax) - sumBy(refunds, (r) => refundExVat(r));
+  totals.profit = totals.revenueExVat - totals.cogs;
+  totals.missingCost = sales.some((s) => s.items.some((l) => l.cost == null));
 
   const bump = (obj, key, init) => (obj[key] ??= { ...init });
   const payments = {};
@@ -1092,8 +1132,9 @@ function reportData() {
     for (const l of s.items) {
       const category = l.category || findProduct(l.productId)?.category || 'Uncategorized';
       const name = findProduct(l.productId)?.name || l.name;
-      const p = bump(products, l.productId, { name, qty: 0, refunded: 0, gross: 0 });
+      const p = bump(products, l.productId, { name, qty: 0, refunded: 0, gross: 0, profit: 0 });
       p.qty += l.qty; p.gross += l.total;
+      p.profit += lineExVat(s, l) - (l.cost || 0) * l.qty;
       const c = bump(cats, category, { qty: 0, gross: 0 });
       c.qty += l.qty; c.gross += l.total;
     }
@@ -1101,18 +1142,25 @@ function reportData() {
   for (const r of refunds) {
     for (const i of r.items) {
       const name = findProduct(i.productId)?.name || i.name;
-      bump(products, i.productId, { name, qty: 0, refunded: 0, gross: 0 }).refunded += i.qty;
+      const p = bump(products, i.productId, { name, qty: 0, refunded: 0, gross: 0, profit: 0 });
+      p.refunded += i.qty;
+      const line = r.sale.items[i.line] || r.sale.items.find((l) => l.productId === i.productId);
+      p.profit -= Math.round(i.amount * exVatShare(r.sale)) - (r.restock ? (line?.cost || 0) * i.qty : 0);
     }
   }
 
   const days = {};
+  const hours = Array.from({ length: 24 }, () => ({ count: 0, net: 0 }));
   for (const s of sales) {
     const d = bump(days, dateKey(s.date), { count: 0, total: 0, refunds: 0 });
     d.count++; d.total += s.total;
+    const h = hours[new Date(s.date).getHours()];
+    h.count++; h.net += s.total;
   }
+  for (const r of refunds) hours[new Date(r.date).getHours()].net -= r.amount;
   for (const r of refunds) bump(days, dateKey(r.date), { count: 0, total: 0, refunds: 0 }).refunds += r.amount;
 
-  return { from, to, sales, refunds, totals, payments, products, cats, days };
+  return { from, to, sales, refunds, totals, payments, products, cats, days, hours };
 }
 
 function renderReports() {
@@ -1128,6 +1176,9 @@ function renderReports() {
     ['Refunds', money(-t.refunds)],
     ['Net revenue', money(t.net)],
     ['Avg. ticket', money(t.count ? Math.round(t.total / t.count) : 0)],
+    ['Cost of goods', money(t.cogs)],
+    [`Gross profit${t.missingCost ? '*' : ''}`, money(t.profit)],
+    ['Margin', t.revenueExVat ? `${Math.round(t.profit / t.revenueExVat * 1000) / 10}%` : '—'],
   ];
   $('#report-stats').innerHTML = stats
     .map(([label, value]) => `<div class="stat"><div class="label">${label}</div><div class="value">${value}</div></div>`)
@@ -1154,12 +1205,15 @@ function renderReports() {
 
   const prods = Object.values(r.products).sort((a, b) => b.gross - a.gross || b.qty - a.qty).slice(0, 10);
   $('#r-products').innerHTML = prods.length ? prods.map((v) => `
-    <tr><td>${escapeHtml(v.name)}</td><td class="num">${v.qty}</td><td class="num">${v.refunded}</td><td class="num">${money(v.gross)}</td></tr>`).join('') : empty(4);
+    <tr><td>${escapeHtml(v.name)}</td><td class="num">${v.qty}</td><td class="num">${v.refunded}</td><td class="num">${money(v.gross)}</td><td class="num">${money(v.profit)}</td></tr>`).join('') : empty(5);
 
   const days = Object.entries(r.days).sort((a, b) => b[0].localeCompare(a[0]));
   $('#r-days').innerHTML = days.length ? days.map(([d, v]) => `
     <tr><td>${d}</td><td class="num">${v.count}</td><td class="num">${money(v.total)}</td>
     <td class="num">${money(-v.refunds)}</td><td class="num">${money(v.total - v.refunds)}</td></tr>`).join('') : empty(5);
+
+  renderReportCharts(r);
+  $('#report-stats').title = t.missingCost ? '* Some items sold had no cost price, so profit is overstated.' : '';
 }
 
 $('#r-presets').addEventListener('click', (e) => {
@@ -1201,12 +1255,13 @@ $('#csv-sales').addEventListener('click', () => {
 
 $('#csv-items').addEventListener('click', () => {
   const r = reportData();
-  const rows = [['Receipt', 'Date', 'SKU', 'Product', 'Category', 'VAT type', 'Qty', 'Unit price', 'Line total', 'Refunded qty']];
+  const rows = [['Receipt', 'Date', 'SKU', 'Product', 'Category', 'VAT type', 'Qty', 'Unit price', 'Line total', 'Unit cost', 'Line profit', 'Refunded qty']];
   for (const s of r.sales) {
     s.items.forEach((l, index) => {
       const p = findProduct(l.productId);
       rows.push([s.id, new Date(s.date).toLocaleString(), l.sku ?? p?.sku ?? '', l.name, l.category || p?.category || '',
-        VAT_TYPES[l.vat] || 'VATable', l.qty, csvMoney(l.price), csvMoney(l.total), refundedLineQty(s, index)]);
+        VAT_TYPES[l.vat] || 'VATable', l.qty, csvMoney(l.price), csvMoney(l.total),
+        l.cost == null ? '' : csvMoney(l.cost), l.cost == null ? '' : csvMoney(lineExVat(s, l) - l.cost * l.qty), refundedLineQty(s, index)]);
     });
   }
   download(`sale-items-${r.from}-to-${r.to}.csv`, toCsv(rows), 'text/csv');
@@ -1986,6 +2041,326 @@ function showZ(z) {
 $('#z-table').addEventListener('click', (e) => {
   const z = state.zReadings.find((x) => String(x.no) === e.target.dataset.z);
   if (z) showZ(z);
+});
+
+// ---------- Sizes and add-ons ----------
+// Text form, one per line: "Large = 180". A size without a price uses the base price;
+// an add-on without a price is free. Returns null if a line can't be read.
+function parseOptions(text, defaultPrice = 0) {
+  const out = [];
+  for (const raw of String(text || '').split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (/[=:]/.test(line)) {
+      const m = line.match(/^(.+?)\s*[=:]\s*(?:₱|PHP)?\s*([\d,]*\.?\d+)\s*$/i);
+      if (!m) return null;
+      out.push({ name: m[1].trim(), price: toCents(m[2].replace(/,/g, '')) });
+    } else {
+      out.push({ name: line, price: defaultPrice });
+    }
+  }
+  return out;
+}
+const formatOptions = (list) => (list || []).map((o) => `${o.name} = ${o.price / 100}`).join('\n');
+
+const optionDialog = $('#option-dialog');
+let optProduct = null;
+
+// Products with sizes or add-ons open a picker; others go straight into the cart.
+function pickProduct(id) {
+  const p = findProduct(id);
+  if (!p) return;
+  if (!p.variants.length && !p.addons.length) { addToCart(id); return; }
+  if (inCartQty(p.id) + 1 > p.stock) { toast(`Only ${p.stock} ${p.name} in stock`); return; }
+  optProduct = p;
+  $('#opt-title').textContent = p.name;
+  const v = $('#opt-variants');
+  const a = $('#opt-addons');
+  v.hidden = !p.variants.length;
+  a.hidden = !p.addons.length;
+  v.innerHTML = '<legend>Size</legend>' + p.variants.map((o, i) =>
+    `<label><input type="radio" name="opt-variant" value="${i}" ${i === 0 ? 'checked' : ''}> ${escapeHtml(o.name)} · ${money(o.price)}</label>`).join('');
+  a.innerHTML = '<legend>Add-ons</legend>' + p.addons.map((o, i) =>
+    `<label><input type="checkbox" name="opt-addon" value="${i}"> ${escapeHtml(o.name)}${o.price ? ` +${money(o.price)}` : ''}</label>`).join('');
+  updateOptionPrice();
+  optionDialog.showModal();
+}
+
+function chosenOptions() {
+  const p = optProduct;
+  const vi = optionDialog.querySelector('input[name=opt-variant]:checked');
+  const variant = p.variants.length ? p.variants[Number(vi?.value ?? 0)] : null;
+  const addons = [...optionDialog.querySelectorAll('input[name=opt-addon]:checked')].map((x) => p.addons[Number(x.value)]);
+  return { variant, addons };
+}
+function updateOptionPrice() {
+  const { variant, addons } = chosenOptions();
+  $('#opt-price').textContent = money(lineUnitPrice(optProduct, { variant, addons }));
+}
+$('#option-form').addEventListener('change', updateOptionPrice);
+$('#opt-cancel').addEventListener('click', () => optionDialog.close());
+$('#option-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const { variant, addons } = chosenOptions();
+  optionDialog.close();
+  addToCart(optProduct.id, variant, addons);
+});
+
+// ---------- Product photos ----------
+let photoData = '';
+function setPhotoPreview(data) {
+  photoData = data || '';
+  $('#p-photo-preview').src = photoData;
+  $('#p-photo-preview').hidden = !photoData;
+  $('#p-photo-remove').hidden = !photoData;
+}
+// Photos are shrunk to a small square JPEG so many fit in the device's storage.
+$('#p-photo').addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    const size = 192;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    canvas.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+    setPhotoPreview(canvas.toDataURL('image/jpeg', 0.75));
+    URL.revokeObjectURL(url);
+  };
+  img.onerror = () => { toast('Could not read that image'); URL.revokeObjectURL(url); };
+  img.src = url;
+});
+$('#p-photo-remove').addEventListener('click', () => setPhotoPreview(''));
+
+// ---------- Cost and profit ----------
+// Share of a sale's money that isn't VAT.
+const exVatShare = (s) => (s.total ? (s.total - s.tax) / s.total : 1);
+const lineExVat = (s, l) => (s.subtotal ? Math.round(l.total * (s.total - s.tax) / s.subtotal) : 0);
+const saleCogs = (s) => sumBy(s.items, (l) => (l.cost || 0) * l.qty);
+const refundExVat = (r) => Math.round(r.amount * exVatShare(r.sale));
+// Restocked items go back into inventory, so their cost comes off cost of goods.
+const refundCogs = (r) => (r.restock
+  ? sumBy(r.items, (i) => ((r.sale.items[i.line] || r.sale.items.find((l) => l.productId === i.productId))?.cost || 0) * i.qty)
+  : 0);
+
+function marginLabel(p) {
+  if (p.cost == null) return '—';
+  const rate = state.settings.taxRate / 100;
+  const net = p.vat === 'vatable' && state.settings.pricesIncludeTax ? p.price / (1 + rate) : p.price;
+  return net > 0 ? `${Math.round((net - p.cost) / net * 100)}%` : '—';
+}
+
+// ---------- Stock in and suppliers ----------
+function renderStockIn() {
+  const sel = $('#si-product');
+  const keep = sel.value;
+  sel.innerHTML = [...state.products].sort((a, b) => a.name.localeCompare(b.name))
+    .map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)} (${p.stock} in stock)</option>`).join('');
+  if (keep && findProduct(keep)) sel.value = keep;
+  $('#supplier-list').innerHTML = state.suppliers.map((x) => `<option value="${escapeHtml(x.name)}">`).join('');
+  $('#stockin-table').innerHTML = [...state.stockIns].reverse().slice(0, 20).map((x) => `
+    <tr><td>${new Date(x.date).toLocaleDateString()}</td><td>${escapeHtml(x.name)}</td><td class="num">${x.qty}</td>
+    <td class="num">${x.unitCost == null ? '—' : money(x.unitCost)}</td><td>${escapeHtml(x.supplier)}</td><td>${escapeHtml(x.ref)}</td></tr>`).join('')
+    || '<tr><td colspan="6" class="empty">No deliveries recorded yet</td></tr>';
+  $('#supplier-table').innerHTML = state.suppliers.map((x) => {
+    const ins = state.stockIns.filter((d) => d.supplier.toLowerCase() === x.name.toLowerCase());
+    return `<tr><td>${escapeHtml(x.name)}</td><td>${escapeHtml(x.contact)}</td><td class="num">${ins.length}</td>
+      <td class="num">${money(sumBy(ins, (d) => (d.unitCost || 0) * d.qty))}</td>
+      <td class="num"><button class="link del" data-del-supplier="${escapeHtml(x.id)}">Delete</button></td></tr>`;
+  }).join('') || '<tr><td colspan="5" class="empty">No suppliers yet</td></tr>';
+}
+
+function ensureSupplier(name, contact = '') {
+  if (!name) return;
+  if (state.suppliers.some((x) => x.name.toLowerCase() === name.toLowerCase())) return;
+  state.suppliers.push({ id: uid('sp'), name, contact });
+}
+
+$('#stockin-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (!can('products')) return;
+  const p = findProduct($('#si-product').value);
+  const qty = parseInt($('#si-qty').value, 10) || 0;
+  if (!p || qty <= 0) { toast('Choose a product and quantity'); return; }
+  const unitCost = $('#si-cost').value === '' ? null : Math.max(0, toCents($('#si-cost').value));
+  const supplier = $('#si-supplier').value.trim();
+  // Average cost: what's on hand at the old cost plus the delivery at its cost.
+  if (unitCost != null) {
+    p.cost = p.cost == null || p.stock <= 0 ? unitCost : Math.round((p.stock * p.cost + qty * unitCost) / (p.stock + qty));
+  }
+  p.stock += qty;
+  ensureSupplier(supplier);
+  state.stockIns.push({
+    id: uid('si'), date: new Date().toISOString(), productId: p.id, name: p.name, qty, unitCost, supplier,
+    ref: $('#si-ref').value.trim(), by: cashierInfo(),
+  });
+  saveState();
+  ['#si-qty', '#si-cost', '#si-ref'].forEach((x) => { $(x).value = ''; });
+  renderProducts();
+  toast(`Added ${qty} × ${p.name}`);
+});
+
+$('#supplier-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = $('#sup-name').value.trim();
+  if (!name) { $('#sup-name').focus(); return; }
+  if (state.suppliers.some((x) => x.name.toLowerCase() === name.toLowerCase())) { toast('That supplier already exists'); return; }
+  ensureSupplier(name, $('#sup-contact').value.trim());
+  saveState();
+  $('#sup-name').value = '';
+  $('#sup-contact').value = '';
+  renderStockIn();
+});
+$('#supplier-table').addEventListener('click', (e) => {
+  const id = e.target.dataset.delSupplier;
+  if (!id) return;
+  const x = state.suppliers.find((y) => y.id === id);
+  if (!confirm(`Delete supplier ${x.name}? Past deliveries keep their supplier name.`)) return;
+  state.suppliers = state.suppliers.filter((y) => y.id !== id);
+  saveState();
+  renderStockIn();
+});
+
+// ---------- Charts ----------
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const svgEl = (tag, attrs = {}) => {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+};
+// Compact axis labels: ₱0, ₱500, ₱1.5K, ₱2M
+function compactMoney(cents) {
+  const v = cents / 100;
+  const abs = Math.abs(v);
+  const sign = v < 0 ? '-' : '';
+  const cur = state.settings.currency;
+  if (abs >= 1e6) return `${sign}${cur}${+(abs / 1e6).toFixed(1)}M`;
+  if (abs >= 1e4) return `${sign}${cur}${+(abs / 1e3).toFixed(1)}K`;
+  return `${sign}${cur}${abs.toLocaleString('en-PH', { maximumFractionDigits: 0 })}`;
+}
+function niceStep(range) {
+  const raw = range / 4 || 1;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const n = raw / mag;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
+}
+
+const chartTip = $('#chart-tip');
+function showTip(title, sub, x, y) {
+  chartTip.replaceChildren();
+  const strong = document.createElement('strong');
+  strong.textContent = title;
+  const span = document.createElement('span');
+  span.textContent = sub;
+  chartTip.append(strong, span);
+  chartTip.hidden = false;
+  const w = chartTip.offsetWidth;
+  chartTip.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, x - w / 2))}px`;
+  chartTip.style.top = `${Math.max(8, y - chartTip.offsetHeight - 12)}px`;
+}
+const hideTip = () => { chartTip.hidden = true; };
+
+/**
+ * Single-series column chart. data: [{ label, value, tip }] (value in centavos).
+ * Columns are thin with a rounded data end; each band is a hover/focus target.
+ */
+function columnChart(container, data, { labelEvery } = {}) {
+  container.replaceChildren();
+  if (!data.length || data.every((d) => !d.value)) {
+    const p = document.createElement('div');
+    p.className = 'chart-empty';
+    p.textContent = 'No sales in this period';
+    container.append(p);
+    return;
+  }
+  const width = Math.max(280, container.clientWidth || 600);
+  const height = 220;
+  const m = { top: 10, right: 6, bottom: 24, left: 52 };
+  const plotW = width - m.left - m.right;
+  const plotH = height - m.top - m.bottom;
+  const values = data.map((d) => d.value);
+  const step = niceStep(Math.max(...values, 0) - Math.min(...values, 0));
+  const lo = Math.floor(Math.min(0, ...values) / step) * step;
+  const hi = Math.max(step, Math.ceil(Math.max(0, ...values) / step) * step);
+  const y = (v) => m.top + plotH - ((v - lo) / (hi - lo)) * plotH;
+  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img' });
+
+  for (let v = lo; v <= hi + step / 2; v += step) {
+    svg.append(svgEl('line', { class: 'grid', x1: m.left, x2: width - m.right, y1: y(v), y2: y(v) }));
+    const t = svgEl('text', { class: 'tick', x: m.left - 6, y: y(v) + 4, 'text-anchor': 'end' });
+    t.textContent = compactMoney(v);
+    svg.append(t);
+  }
+
+  const band = plotW / data.length;
+  const barW = Math.max(2, Math.min(24, band * 0.7));
+  const every = labelEvery || Math.max(1, Math.ceil(data.length / Math.max(1, Math.floor(plotW / 56))));
+  data.forEach((d, i) => {
+    const cx = m.left + band * i + band / 2;
+    const x0 = cx - barW / 2;
+    const yBase = y(0);
+    const yVal = y(d.value);
+    const h = Math.abs(yBase - yVal);
+    const r = Math.min(4, barW / 2, h);
+    // Rounded at the data end, square at the baseline.
+    const path = d.value >= 0
+      ? `M${x0},${yBase} V${yVal + r} Q${x0},${yVal} ${x0 + r},${yVal} H${x0 + barW - r} Q${x0 + barW},${yVal} ${x0 + barW},${yVal + r} V${yBase} Z`
+      : `M${x0},${yBase} V${yVal - r} Q${x0},${yVal} ${x0 + r},${yVal} H${x0 + barW - r} Q${x0 + barW},${yVal} ${x0 + barW},${yVal - r} V${yBase} Z`;
+    const hit = svgEl('rect', { class: 'hit', x: m.left + band * i, y: m.top, width: band, height: plotH, tabindex: 0 });
+    hit.setAttribute('aria-label', `${d.label}: ${money(d.value)}`);
+    const show = (ev) => {
+      const box = hit.getBoundingClientRect();
+      showTip(money(d.value), d.tip || d.label, ev?.clientX ?? box.left + box.width / 2, ev?.clientY ?? box.top + 20);
+    };
+    hit.addEventListener('pointermove', show);
+    hit.addEventListener('focus', () => show());
+    hit.addEventListener('pointerleave', hideTip);
+    hit.addEventListener('blur', hideTip);
+    svg.append(hit);
+    if (h > 0) svg.append(svgEl('path', { class: 'bar', d: path }));
+    if (i % every === 0) {
+      const t = svgEl('text', { class: 'tick', x: cx, y: height - 6, 'text-anchor': 'middle' });
+      t.textContent = d.label;
+      svg.append(t);
+    }
+  });
+  container.append(svg);
+}
+
+function renderReportCharts(r) {
+  // Every day in the range (by month when the range is long), including days without sales.
+  const start = new Date(`${r.from === '0000-01-01' ? dateKey(new Date()) : r.from}T00:00:00`);
+  const end = new Date(`${r.to === '9999-12-31' ? dateKey(new Date()) : r.to}T00:00:00`);
+  const dayCount = Math.round((end - start) / 864e5) + 1;
+  const byMonth = dayCount > 92;
+  const buckets = new Map();
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const key = byMonth ? dateKey(d).slice(0, 7) : dateKey(d);
+    if (!buckets.has(key)) buckets.set(key, 0);
+  }
+  for (const [day, v] of Object.entries(r.days)) {
+    const key = byMonth ? day.slice(0, 7) : day;
+    if (buckets.has(key)) buckets.set(key, buckets.get(key) + v.total - v.refunds);
+  }
+  const fmtDay = (k) => new Date(`${k}T00:00:00`).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' });
+  const fmtMonth = (k) => new Date(`${k}-01T00:00:00`).toLocaleDateString('en-PH', { month: 'short', year: '2-digit' });
+  columnChart($('#chart-days'), [...buckets].map(([k, v]) => ({
+    label: byMonth ? fmtMonth(k) : fmtDay(k), value: v, tip: byMonth ? fmtMonth(k) : new Date(`${k}T00:00:00`).toDateString(),
+  })));
+
+  const hourLabel = (h) => `${h % 12 || 12}${h < 12 ? 'am' : 'pm'}`;
+  columnChart($('#chart-hours'), r.hours.map((h, i) => ({
+    label: hourLabel(i), value: h.net, tip: `${hourLabel(i)}–${hourLabel((i + 1) % 24)} · ${h.count} sale${h.count === 1 ? '' : 's'}`,
+  })), { labelEvery: 3 });
+  $('#r-hours').innerHTML = r.hours.map((h, i) => (h.count || h.net ? `<tr><td>${hourLabel(i)}</td><td class="num">${h.count}</td><td class="num">${money(h.net)}</td></tr>` : '')).join('')
+    || '<tr><td colspan="3" class="empty">No sales in this period</td></tr>';
+}
+window.addEventListener('resize', () => {
+  if ($('#view-reports').classList.contains('active')) renderReports();
 });
 
 // ---------- Init ----------

@@ -77,6 +77,7 @@
         <datalist id="category-list"></datalist>
         <label>Price <input id="p-price" type="number" min="0" step="0.01" required></label>
         <label>Stock <input id="p-stock" type="number" min="0" step="1" value="0" required></label>
+        <label>Cost price <input id="p-cost" type="number" min="0" step="0.01" placeholder="For profit reports"></label>
         <label>VAT
           <select id="p-vat">
             <option value="vatable">VATable</option>
@@ -84,6 +85,17 @@
             <option value="zero">Zero-rated</option>
           </select>
         </label>
+        <label class="wide">Sizes (optional, one per line: Name = price)
+          <textarea id="p-variants" rows="3" placeholder="Small = 120&#10;Medium = 150&#10;Large = 180"></textarea>
+        </label>
+        <label class="wide">Add-ons (optional, one per line: Name = price)
+          <textarea id="p-addons" rows="3" placeholder="Extra shot = 30&#10;Oat milk = 25"></textarea>
+        </label>
+        <div class="photo-field">
+          <img id="p-photo-preview" alt="" hidden>
+          <label class="secondary-btn">Photo <input id="p-photo" type="file" accept="image/*" hidden></label>
+          <button type="button" id="p-photo-remove" class="link del" hidden>Remove photo</button>
+        </div>
         <div class="form-actions">
           <button type="button" id="p-cancel" class="secondary">Cancel</button>
           <button type="submit" class="primary" id="p-submit">Add Product</button>
@@ -95,8 +107,40 @@
           <label class="inline"><input type="checkbox" id="low-only"> Show low stock only</label>
         </div>
         <table class="table">
-          <thead><tr><th>Name</th><th>SKU</th><th>Category</th><th>VAT</th><th class="num">Price</th><th class="num">Stock</th><th></th></tr></thead>
+          <thead><tr><th>Name</th><th>SKU</th><th>Category</th><th>VAT</th><th class="num">Price</th><th class="num" data-owner-only>Cost</th><th class="num" data-owner-only>Margin</th><th class="num">Stock</th><th></th></tr></thead>
           <tbody id="product-table"></tbody>
+        </table>
+      </div>
+
+      <form id="stockin-form" class="card form-grid" data-owner-only>
+        <h3 class="wide">Stock in (deliveries)</h3>
+        <label>Product <select id="si-product" required></select></label>
+        <label>Quantity <input id="si-qty" type="number" min="1" step="1" required></label>
+        <label>Unit cost <input id="si-cost" type="number" min="0" step="0.01" placeholder="Updates average cost"></label>
+        <label>Supplier <input id="si-supplier" list="supplier-list" autocomplete="off"></label>
+        <datalist id="supplier-list"></datalist>
+        <label>Invoice / DR no. <input id="si-ref" autocomplete="off"></label>
+        <div class="form-actions">
+          <button type="submit" class="primary">Add stock</button>
+        </div>
+      </form>
+      <div class="card" data-owner-only>
+        <h3>Recent deliveries</h3>
+        <table class="table">
+          <thead><tr><th>Date</th><th>Product</th><th class="num">Qty</th><th class="num">Unit cost</th><th>Supplier</th><th>Ref</th></tr></thead>
+          <tbody id="stockin-table"></tbody>
+        </table>
+      </div>
+      <div class="card" data-owner-only>
+        <h3>Suppliers</h3>
+        <form id="supplier-form" class="quick-add">
+          <input id="sup-name" placeholder="Supplier name" autocomplete="off">
+          <input id="sup-contact" placeholder="Contact / phone" autocomplete="off">
+          <button class="secondary" type="submit">Add supplier</button>
+        </form>
+        <table class="table">
+          <thead><tr><th>Name</th><th>Contact</th><th class="num">Deliveries</th><th class="num">Total cost</th><th></th></tr></thead>
+          <tbody id="supplier-table"></tbody>
         </table>
       </div>
     </section>
@@ -178,6 +222,23 @@
       <div class="stats" id="report-stats"></div>
       <div class="report-grid">
         <div class="card">
+          <h3>Net sales by day</h3>
+          <div id="chart-days" class="chart"></div>
+        </div>
+        <div class="card">
+          <h3>Net sales by hour of day</h3>
+          <div id="chart-hours" class="chart"></div>
+          <details class="table-view">
+            <summary>Show as table</summary>
+            <table class="table">
+              <thead><tr><th>Hour</th><th class="num">Sales</th><th class="num">Net sales</th></tr></thead>
+              <tbody id="r-hours"></tbody>
+            </table>
+          </details>
+        </div>
+      </div>
+      <div class="report-grid">
+        <div class="card">
           <h3>Payment methods</h3>
           <table class="table">
             <thead><tr><th>Method</th><th class="num">Sales</th><th class="num">Total</th><th class="num">Refunds</th><th class="num">Net</th></tr></thead>
@@ -200,7 +261,7 @@
         <div class="card">
           <h3>Top products</h3>
           <table class="table">
-            <thead><tr><th>Product</th><th class="num">Qty sold</th><th class="num">Refunded</th><th class="num">Gross sales</th></tr></thead>
+            <thead><tr><th>Product</th><th class="num">Qty sold</th><th class="num">Refunded</th><th class="num">Gross sales</th><th class="num">Profit</th></tr></thead>
             <tbody id="r-products"></tbody>
           </table>
         </div>
@@ -319,6 +380,23 @@
       </div>
     </form>
   </dialog>
+
+  <!-- Size and add-on picker -->
+  <dialog id="option-dialog">
+    <form id="option-form">
+      <h2 id="opt-title"></h2>
+      <fieldset id="opt-variants" class="opt-group"></fieldset>
+      <fieldset id="opt-addons" class="opt-group"></fieldset>
+      <p>Price: <strong id="opt-price"></strong></p>
+      <div class="form-actions">
+        <button type="button" id="opt-cancel" class="secondary">Cancel</button>
+        <button type="submit" class="primary">Add to sale</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Chart tooltip -->
+  <div id="chart-tip" class="chart-tip" role="status" hidden></div>
 
   <!-- Held sales -->
   <dialog id="held-dialog">
