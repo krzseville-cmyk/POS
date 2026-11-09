@@ -9,7 +9,12 @@ const PAYMENT_METHODS = [
   { id: 'gcash', label: 'GCash' },
   { id: 'maya', label: 'Maya' },
   { id: 'qrph', label: 'QR Ph' },
+  // Only offered when a customer is on the sale.
+  { id: 'credit', label: 'Utang', needsCustomer: true },
+  { id: 'points', label: 'Points', needsCustomer: true },
 ];
+// Ways a customer can pay off utang.
+const COLLECTION_METHODS = ['cash', 'gcash', 'maya', 'qrph', 'card'];
 const methodLabel = (id) => PAYMENT_METHODS.find((m) => m.id === id)?.label || (id === 'split' ? 'Split' : String(id ?? ''));
 
 const VAT_TYPES = { vatable: 'VATable', exempt: 'VAT-exempt', zero: 'Zero-rated' };
@@ -27,6 +32,9 @@ const DEFAULT_SETTINGS = {
   pricesIncludeTax: true,
   currency: '₱',
   lowStock: 5,
+  pointsPer: 10000, // centavos spent per loyalty point (₱100); 0 turns points off
+  pointValue: 100, // centavos a point is worth when redeemed (₱1)
+  requireShift: false,
 };
 
 const DEFAULT_STATE = {
@@ -46,6 +54,12 @@ const DEFAULT_STATE = {
   ],
   sales: [],
   nextReceipt: 1001,
+  users: [],
+  shifts: [],
+  zReadings: [],
+  nextZ: 1,
+  held: [],
+  customers: [],
 };
 
 // ---------- Storage ----------
@@ -76,9 +90,25 @@ function normalizeState(data) {
   const sales = data.sales
     .filter((s) => s && s.id != null && Array.isArray(s.items))
     .map((s) => ({ ...s, refunds: Array.isArray(s.refunds) ? s.refunds : [] }));
+  settings.pointsPer = Math.max(0, Math.round(Number(settings.pointsPer) || 0));
+  settings.pointValue = Math.max(0, Math.round(Number(settings.pointValue) || 0));
+  settings.requireShift = Boolean(settings.requireShift);
   const maxId = sales.reduce((m, s) => Math.max(m, Number(s.id) || 0), 0);
   const nextReceipt = Math.max(Number(data.nextReceipt) || 1001, maxId + 1);
-  return { ...data, settings, products, sales, nextReceipt };
+  const list = (x) => (Array.isArray(x) ? x : []);
+  const zReadings = list(data.zReadings);
+  const customers = list(data.customers)
+    .filter((c) => c && c.id && c.name)
+    .map((c) => ({ ...c, phone: c.phone || '', points: Math.max(0, Number(c.points) || 0), ledger: list(c.ledger) }));
+  return {
+    ...data, settings, products, sales, nextReceipt,
+    users: list(data.users).filter((u) => u && u.id && u.name && u.pinHash),
+    shifts: list(data.shifts),
+    zReadings,
+    nextZ: Math.max(Number(data.nextZ) || 1, zReadings.reduce((m, z) => Math.max(m, z.no || 0), 0) + 1),
+    held: list(data.held),
+    customers,
+  };
 }
 
 function loadState() {
@@ -249,11 +279,16 @@ document.querySelectorAll('.tab').forEach((btn) => {
 });
 
 function showView(name) {
+  // Cashiers can't open owner-only screens.
+  const tab = document.querySelector(`.tab[data-view="${name}"]`);
+  if (tab?.hasAttribute('data-owner-only') && !isOwner()) name = 'register';
   document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${name}`));
   if (name === 'register') renderRegister();
   if (name === 'products') renderProducts();
   if (name === 'sales') renderSales();
+  if (name === 'customers') renderCustomers();
+  if (name === 'shift') renderShift();
   if (name === 'reports') renderReports();
   if (name === 'settings') renderSettings();
 }
@@ -464,6 +499,8 @@ $('#clear-cart').addEventListener('click', () => {
 
 function resetSale() {
   cart = [];
+  cartCustomerId = null;
+  renderCartCustomer();
   $('#discount-type').value = 'pct';
   $('#discount-value').value = 0;
   renderCart();
@@ -487,7 +524,9 @@ const coRemaining = () => Math.max(0, coTotal - sumBy(coPayments, (p) => p.amoun
 const setCoAmount = (cents) => { $('#co-tendered').value = (cents / 100).toFixed(2); };
 
 function renderPayMethods() {
+  const cust = cartCustomer();
   $('#pay-methods').innerHTML = PAYMENT_METHODS
+    .filter((m) => !m.needsCustomer || (cust && (m.id !== 'points' || (cust.points > 0 && state.settings.pointValue > 0))))
     .map((m) => `<label><input type="radio" name="payment" value="${m.id}" ${m.id === 'cash' ? 'checked' : ''}> ${m.label}</label>`)
     .join('');
 }
@@ -495,6 +534,10 @@ function renderPayMethods() {
 $('#checkout').addEventListener('click', () => {
   const t = computeTotals();
   if (!t.lines.length) return;
+  if (state.settings.requireShift && !openShift()) {
+    toast('Open a shift first (Shift tab)');
+    return;
+  }
   coTotal = t.total;
   coPayments = [];
   $('#co-total').textContent = money(coTotal);
@@ -525,7 +568,12 @@ function checkoutCheck() {
   const entries = checkoutEntries();
   const paid = sumBy(entries, (p) => p.amount);
   const nonCash = sumBy(entries.filter((p) => p.method !== 'cash'), (p) => p.amount);
-  if (nonCash > coTotal) return { entries, paid, error: 'Card and e-wallet payments can’t be more than the amount due.' };
+  if (nonCash > coTotal) return { entries, paid, error: 'Only cash can be more than the amount due.' };
+  const pointsPaid = sumBy(entries.filter((p) => p.method === 'points'), (p) => p.amount);
+  const cust = cartCustomer();
+  if (pointsPaid && (!cust || pointsNeeded(pointsPaid) > cust.points)) {
+    return { entries, paid, error: `Not enough points (worth ${money((cust?.points || 0) * state.settings.pointValue)}).` };
+  }
   return { entries, paid, short: Math.max(0, coTotal - paid), change: Math.max(0, paid - coTotal) };
 }
 
@@ -555,8 +603,12 @@ function renderCheckout() {
 }
 
 $('#pay-methods').addEventListener('change', () => {
-  // Card and e-wallets are charged the exact amount still due.
-  if (coMethod() !== 'cash') setCoAmount(coRemaining());
+  // Card and e-wallets are charged the exact amount still due; points up to what they're worth.
+  if (coMethod() === 'points') {
+    setCoAmount(Math.min(coRemaining(), cartCustomer().points * state.settings.pointValue));
+  } else if (coMethod() !== 'cash') {
+    setCoAmount(coRemaining());
+  }
   renderCheckout();
 });
 $('#co-tendered').addEventListener('input', renderCheckout);
@@ -632,8 +684,21 @@ function completeSale(t, payments, change, sc) {
     tendered: sumBy(payments, (p) => p.amount),
     change,
     sc,
+    cashier: cashierInfo(),
+    shiftId: openShift()?.id || null,
+    customer: null,
     refunds: [],
   };
+  const cust = cartCustomer();
+  if (cust) {
+    sale.customer = { id: cust.id, name: cust.name };
+    const credit = sumBy(payments.filter((p) => p.method === 'credit'), (p) => p.amount);
+    if (credit) cust.ledger.push({ id: uid('l'), date: sale.date, type: 'charge', amount: credit, saleId: sale.id });
+    const pointsPaid = sumBy(payments.filter((p) => p.method === 'points'), (p) => p.amount);
+    sale.pointsUsed = pointsPaid ? pointsNeeded(pointsPaid) : 0;
+    sale.pointsEarned = state.settings.pointsPer ? Math.floor((sale.total - pointsPaid) / state.settings.pointsPer) : 0;
+    cust.points = Math.max(0, cust.points - sale.pointsUsed) + sale.pointsEarned;
+  }
   for (const line of t.lines) {
     const p = findProduct(line.productId);
     if (p) p.stock = Math.max(0, p.stock - line.qty);
@@ -642,6 +707,7 @@ function completeSale(t, payments, change, sc) {
   saveState();
   resetSale();
   renderLowStockBadge();
+  renderShiftDot();
   showReceipt(sale);
 }
 
@@ -667,6 +733,7 @@ function showReceipt(sale) {
       ${s.storeAddress ? `${escapeHtml(s.storeAddress)}<br>` : ''}
       ${s.tin ? `VAT REG TIN: ${escapeHtml(s.tin)}<br>` : ''}
       Receipt #${escapeHtml(sale.id)}<br>${new Date(sale.date).toLocaleString()}
+      ${sale.cashier ? `<br>Cashier: ${escapeHtml(sale.cashier.name)}` : ''}
     </div>
     <hr>
     ${sale.items.map((l) => row(`${l.qty} × ${escapeHtml(l.name)}`, `${money(l.total)}${vatBreakdown ? ` ${VAT_CODES[l.vat] || 'V'}` : ''}`)).join('')}
@@ -684,6 +751,7 @@ function showReceipt(sale) {
     <hr>
     ${salePayments(sale).map((p) => row(`${escapeHtml(methodLabel(p.method))}${p.ref ? ` (Ref ${escapeHtml(p.ref)})` : ''}`, money(p.amount))).join('')}
     ${sale.change || salePayments(sale).some((p) => p.method === 'cash') ? row('Change', money(sale.change || 0)) : ''}
+    ${sale.customer ? receiptCustomer(sale, row) : ''}
     ${sale.sc ? `<hr>
       ${row(`${SC_LABELS[sale.sc.type]} name`, escapeHtml(sale.sc.name))}
       ${row('ID no.', escapeHtml(sale.sc.idNo))}
@@ -719,9 +787,9 @@ function renderProducts() {
         <td>${VAT_TYPES[p.vat]}</td>
         <td class="num">${money(p.price)}</td>
         <td class="num stock-cell">${p.stock}</td>
-        <td class="num">
+        <td class="num">${can('products') ? `
           <button class="link" data-edit="${escapeHtml(p.id)}">Edit</button>
-          <button class="link del" data-delete="${escapeHtml(p.id)}">Delete</button>
+          <button class="link del" data-delete="${escapeHtml(p.id)}">Delete</button>` : ''}
         </td>
       </tr>`).join('')
     : `<tr><td colspan="7" class="empty">${lowOnly ? 'No low-stock products' : 'No products yet'}</td></tr>`;
@@ -737,6 +805,7 @@ function resetProductForm() {
 }
 
 $('#product-table').addEventListener('click', (e) => {
+  if (!can('products')) return;
   const editId = e.target.dataset.edit;
   const deleteId = e.target.dataset.delete;
   if (editId) {
@@ -836,7 +905,7 @@ function renderSales() {
         <td><span class="status ${status}">${labels[status]}</span></td>
         <td class="num">
           <button class="link" data-receipt="${escapeHtml(s.id)}">Receipt</button>
-          ${status !== 'refunded' ? `<button class="link del" data-refund="${escapeHtml(s.id)}">Refund</button>` : ''}
+          ${status !== 'refunded' && can('refund') ? `<button class="link del" data-refund="${escapeHtml(s.id)}">Refund</button>` : ''}
         </td>
       </tr>`;
     }).join('')
@@ -851,7 +920,7 @@ $('#sales-table').addEventListener('click', (e) => {
     const sale = findSale(receipt);
     if (sale) showReceipt(sale);
   }
-  if (refund) {
+  if (refund && can('refund')) {
     const sale = findSale(refund);
     if (sale) openRefund(sale);
   }
@@ -932,7 +1001,12 @@ $('#refund-form').addEventListener('submit', (e) => {
   const restock = $('#rf-restock').checked;
   const method = $('#rf-method').value || sale.method;
   sale.refunds = sale.refunds || [];
-  sale.refunds.push({ date: new Date().toISOString(), items, amount, restock, method });
+  const refund = { date: new Date().toISOString(), items, amount, restock, method, shiftId: openShift()?.id || null, by: cashierInfo() };
+  sale.refunds.push(refund);
+  // Money back as utang reduces what the customer owes; points go back to their balance.
+  const cust = sale.customer && findCustomer(sale.customer.id);
+  if (cust && method === 'credit') cust.ledger.push({ id: uid('l'), date: refund.date, type: 'refund', amount, saleId: sale.id });
+  if (cust && method === 'points') cust.points += pointsNeeded(amount);
   if (restock) {
     for (const i of items) {
       const p = findProduct(i.productId);
@@ -1149,6 +1223,10 @@ function renderSettings() {
   $('#s-incl').checked = s.pricesIncludeTax;
   $('#s-currency').value = s.currency;
   $('#s-low').value = s.lowStock;
+  $('#s-points-per').value = s.pointsPer / 100;
+  $('#s-point-value').value = (s.pointValue / 100).toFixed(2);
+  $('#s-require-shift').checked = s.requireShift;
+  renderUsers();
 }
 
 $('#settings-form').addEventListener('submit', (e) => {
@@ -1162,6 +1240,9 @@ $('#settings-form').addEventListener('submit', (e) => {
     pricesIncludeTax: $('#s-incl').checked,
     currency: $('#s-currency').value.trim() || '₱',
     lowStock: Math.max(0, parseInt($('#s-low').value, 10) || 0),
+    pointsPer: Math.max(0, toCents($('#s-points-per').value)),
+    pointValue: Math.max(0, toCents($('#s-point-value').value)),
+    requireShift: $('#s-require-shift').checked,
   });
   saveState();
   applyStoreName();
@@ -1196,6 +1277,717 @@ $('#reset-data').addEventListener('click', () => {
   location.reload();
 });
 
+// ---------- Users, PINs and roles ----------
+const SESSION_KEY = 'simple-pos-user';
+let currentUser = null;
+let lockUserId = null;
+const usersEnabled = () => state.users.length > 0;
+const isOwner = () => !usersEnabled() || currentUser?.role === 'owner';
+// Cashiers can sell and handle day-to-day tasks; everything else is owner-only
+// (editing products and prices, refunds, Z-reading, settings, reports).
+const CASHIER_ACTIONS = ['sell', 'hold', 'xreading', 'customers', 'shift'];
+const can = (action) => isOwner() || CASHIER_ACTIONS.includes(action);
+const cashierInfo = () => (currentUser ? { id: currentUser.id, name: currentUser.name } : null);
+const ownerCount = () => state.users.filter((u) => u.role === 'owner').length;
+
+async function hashPin(userId, pin) {
+  const text = `simple-pos:${userId}:${pin}`;
+  if (window.crypto?.subtle) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  }
+  // Fallback for browsers without Web Crypto (not cryptographically strong).
+  let h = 2166136261;
+  for (const ch of text) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return `fnv-${(h >>> 0).toString(16)}`;
+}
+
+function applyPermissions() {
+  document.querySelectorAll('[data-owner-only]').forEach((el) => { el.hidden = !isOwner(); });
+  const chip = $('#user-chip');
+  chip.hidden = !usersEnabled() || !currentUser;
+  if (currentUser) chip.textContent = `${currentUser.name} · ${currentUser.role === 'owner' ? 'Owner' : 'Cashier'} · Lock`;
+  const active = document.querySelector('.tab.active');
+  if (active?.hasAttribute('data-owner-only') && !isOwner()) showView('register');
+}
+
+function showLock() {
+  currentUser = null;
+  lockUserId = state.users.length === 1 ? state.users[0].id : null;
+  try { sessionStorage.removeItem(SESSION_KEY); } catch (e) { /* storage unavailable */ }
+  document.querySelectorAll('dialog[open]').forEach((d) => d.close());
+  $('#lock-store').textContent = state.settings.storeName;
+  renderLockUsers();
+  $('#lock-pin').value = '';
+  $('#lock-error').hidden = true;
+  $('#lock-screen').hidden = false;
+  applyPermissions();
+  $('#lock-pin').focus();
+}
+
+function renderLockUsers() {
+  $('#lock-users').innerHTML = state.users
+    .map((u) => `<button type="button" class="chip ${u.id === lockUserId ? 'active' : ''}" data-user="${escapeHtml(u.id)}">${escapeHtml(u.name)}</button>`)
+    .join('');
+}
+
+function startSession() {
+  if (!usersEnabled()) { applyPermissions(); return; }
+  let id = null;
+  try { id = sessionStorage.getItem(SESSION_KEY); } catch (e) { /* storage unavailable */ }
+  currentUser = state.users.find((u) => u.id === id) || null;
+  if (currentUser) applyPermissions();
+  else showLock();
+}
+
+$('#lock-users').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-user]');
+  if (!btn) return;
+  lockUserId = btn.dataset.user;
+  renderLockUsers();
+  $('#lock-pin').focus();
+});
+
+$('#lock-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const user = state.users.find((u) => u.id === lockUserId);
+  const showError = (msg) => { $('#lock-error').textContent = msg; $('#lock-error').hidden = false; };
+  if (!user) { showError('Choose your name first'); return; }
+  if (await hashPin(user.id, $('#lock-pin').value) !== user.pinHash) {
+    showError('Wrong PIN');
+    $('#lock-pin').value = '';
+    return;
+  }
+  currentUser = user;
+  try { sessionStorage.setItem(SESSION_KEY, user.id); } catch (err) { /* storage unavailable */ }
+  $('#lock-screen').hidden = true;
+  applyPermissions();
+  showView('register');
+  toast(`Welcome, ${user.name}`);
+});
+
+$('#user-chip').addEventListener('click', () => {
+  if (cart.length && !confirm('Lock the register? The current sale stays in the cart.')) return;
+  showLock();
+});
+
+function renderUsers() {
+  const none = !usersEnabled();
+  $('#users-note').textContent = none
+    ? 'No users yet, so the app opens without a PIN. Add yourself as the owner to turn on PIN login.'
+    : 'Everyone picks their name and enters a PIN to use the register. Cashiers can sell, hold sales, handle customers and shifts, and run X-readings.';
+  $('#users-table').innerHTML = state.users.map((u) => `
+    <tr>
+      <td>${escapeHtml(u.name)}${u.id === currentUser?.id ? ' <small class="muted">(you)</small>' : ''}</td>
+      <td>${u.role === 'owner' ? 'Owner' : 'Cashier'}</td>
+      <td class="num">
+        <button class="link" data-edit-user="${escapeHtml(u.id)}">Edit</button>
+        <button class="link del" data-delete-user="${escapeHtml(u.id)}">Delete</button>
+      </td>
+    </tr>`).join('') || '<tr><td colspan="3" class="empty">No users</td></tr>';
+  if (none) $('#u-role').value = 'owner';
+  $('#u-role').disabled = none;
+}
+
+function resetUserForm() {
+  $('#user-form').reset();
+  $('#u-id').value = '';
+  $('#u-submit').textContent = 'Add User';
+  $('#u-pin').placeholder = '';
+  renderUsers();
+}
+
+$('#users-table').addEventListener('click', (e) => {
+  const editId = e.target.dataset.editUser;
+  const deleteId = e.target.dataset.deleteUser;
+  if (editId) {
+    const u = state.users.find((x) => x.id === editId);
+    $('#u-id').value = u.id;
+    $('#u-name').value = u.name;
+    $('#u-pin').value = '';
+    $('#u-pin').placeholder = 'Leave blank to keep';
+    $('#u-role').value = u.role;
+    $('#u-role').disabled = false;
+    $('#u-submit').textContent = 'Save User';
+    $('#u-name').focus();
+  }
+  if (deleteId) {
+    const u = state.users.find((x) => x.id === deleteId);
+    if (u.role === 'owner' && ownerCount() === 1 && state.users.length > 1) {
+      toast('Add another owner before deleting the last one');
+      return;
+    }
+    const last = state.users.length === 1;
+    if (!confirm(last ? `Delete ${u.name}? PIN login will turn off.` : `Delete ${u.name}?`)) return;
+    state.users = state.users.filter((x) => x.id !== deleteId);
+    if (currentUser?.id === deleteId) currentUser = null;
+    saveState();
+    resetUserForm();
+    if (usersEnabled() && !currentUser) showLock();
+    else applyPermissions();
+  }
+});
+
+$('#u-cancel').addEventListener('click', resetUserForm);
+
+$('#user-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = $('#u-id').value;
+  const name = $('#u-name').value.trim();
+  const pin = $('#u-pin').value.trim();
+  const role = usersEnabled() ? $('#u-role').value : 'owner';
+  if (!name) return;
+  if ((!id || pin) && !/^\d{4,8}$/.test(pin)) { toast('PIN must be 4 to 8 digits'); return; }
+  if (state.users.some((u) => u.name.toLowerCase() === name.toLowerCase() && u.id !== id)) { toast('That name is already used'); return; }
+  const existing = id && state.users.find((u) => u.id === id);
+  if (existing) {
+    if (existing.role === 'owner' && role !== 'owner' && ownerCount() === 1) { toast('There must be at least one owner'); return; }
+    existing.name = name;
+    existing.role = role;
+    if (pin) existing.pinHash = await hashPin(existing.id, pin);
+    if (currentUser?.id === existing.id) currentUser = existing;
+    toast('User saved');
+  } else {
+    const user = { id: uid('u'), name, role };
+    user.pinHash = await hashPin(user.id, pin);
+    const first = !usersEnabled();
+    state.users.push(user);
+    if (first) {
+      currentUser = user;
+      try { sessionStorage.setItem(SESSION_KEY, user.id); } catch (err) { /* storage unavailable */ }
+      toast('PIN login is on. You are signed in as the owner.');
+    } else {
+      toast('User added');
+    }
+  }
+  saveState();
+  resetUserForm();
+  applyPermissions();
+});
+
+// ---------- Customers, utang and loyalty points ----------
+let cartCustomerId = null;
+const findCustomer = (id) => state.customers.find((c) => c.id === id);
+const cartCustomer = () => (cartCustomerId ? findCustomer(cartCustomerId) || null : null);
+const customerBalance = (c) => sumBy(c.ledger || [], (e) => (e.type === 'charge' ? e.amount : -e.amount));
+// Points needed to cover an amount (rounded up so the store never gives away extra).
+const pointsNeeded = (amount) => (state.settings.pointValue ? Math.ceil(amount / state.settings.pointValue) : 0);
+
+function receiptCustomer(sale, row) {
+  const c = findCustomer(sale.customer.id);
+  return `<hr>
+    ${row('Customer', escapeHtml(sale.customer.name))}
+    ${sale.pointsUsed ? row('Points used', sale.pointsUsed) : ''}
+    ${sale.pointsEarned ? row('Points earned', sale.pointsEarned) : ''}
+    ${c ? row('Points balance', c.points) : ''}
+    ${c && customerBalance(c) ? row('Utang balance', money(customerBalance(c))) : ''}`;
+}
+
+function renderCartCustomer() {
+  const c = cartCustomer();
+  const btn = $('#cart-customer');
+  btn.classList.toggle('set', Boolean(c));
+  btn.textContent = c
+    ? `Customer: ${c.name} · ${c.points} pts${customerBalance(c) ? ` · owes ${money(customerBalance(c))}` : ''}`
+    : '+ Add customer';
+}
+
+const customerDialog = $('#customer-dialog');
+$('#cart-customer').addEventListener('click', () => {
+  $('#cust-search').value = '';
+  renderCustomerResults();
+  customerDialog.showModal();
+  $('#cust-search').focus();
+});
+
+function matchCustomers(q) {
+  q = q.trim().toLowerCase();
+  return state.customers
+    .filter((c) => !q || c.name.toLowerCase().includes(q) || (c.phone || '').includes(q))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function renderCustomerResults() {
+  const list = matchCustomers($('#cust-search').value).slice(0, 50);
+  $('#cust-results').innerHTML = list.map((c) => `
+    <li>
+      <span>${escapeHtml(c.name)}<br><span class="muted">${escapeHtml(c.phone)} · ${c.points} pts${customerBalance(c) ? ` · owes ${money(customerBalance(c))}` : ''}</span></span>
+      <button type="button" class="${c.id === cartCustomerId ? 'primary' : 'secondary'}" data-pick="${escapeHtml(c.id)}">${c.id === cartCustomerId ? 'Selected' : 'Select'}</button>
+    </li>`).join('') || '<li class="empty">No customers found</li>';
+}
+
+$('#cust-search').addEventListener('input', renderCustomerResults);
+$('#cust-results').addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-pick]');
+  if (!btn) return;
+  cartCustomerId = btn.dataset.pick;
+  renderCartCustomer();
+  customerDialog.close();
+});
+$('#cust-quick').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = $('#cq-name').value.trim();
+  if (!name) { $('#cq-name').focus(); return; }
+  const c = { id: uid('c'), name, phone: $('#cq-phone').value.trim(), points: 0, ledger: [] };
+  state.customers.push(c);
+  saveState();
+  cartCustomerId = c.id;
+  $('#cq-name').value = '';
+  $('#cq-phone').value = '';
+  renderCartCustomer();
+  customerDialog.close();
+  toast(`Added ${name}`);
+});
+$('#cust-none').addEventListener('click', () => { cartCustomerId = null; renderCartCustomer(); customerDialog.close(); });
+$('#cust-close').addEventListener('click', () => customerDialog.close());
+
+function renderCustomers() {
+  const list = matchCustomers($('#cust-filter').value);
+  const owed = sumBy(state.customers, (c) => Math.max(0, customerBalance(c)));
+  $('#utang-total').textContent = `Total utang: ${money(owed)}`;
+  $('#customer-table').innerHTML = list.map((c) => {
+    const bal = customerBalance(c);
+    return `
+    <tr>
+      <td>${escapeHtml(c.name)}</td>
+      <td>${escapeHtml(c.phone)}</td>
+      <td class="num ${bal > 0 ? 'short' : ''}">${money(bal)}</td>
+      <td class="num">${c.points}</td>
+      <td class="num">
+        ${bal > 0 ? `<button class="link" data-pay="${escapeHtml(c.id)}">Pay</button>` : ''}
+        <button class="link" data-history="${escapeHtml(c.id)}">History</button>
+        <button class="link" data-edit-cust="${escapeHtml(c.id)}">Edit</button>
+        ${isOwner() && !bal ? `<button class="link del" data-delete-cust="${escapeHtml(c.id)}">Delete</button>` : ''}
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="5" class="empty">No customers yet</td></tr>';
+}
+
+$('#cust-filter').addEventListener('input', renderCustomers);
+
+function resetCustomerForm() {
+  $('#customer-form').reset();
+  $('#c-id').value = '';
+  $('#c-submit').textContent = 'Add Customer';
+}
+$('#c-cancel').addEventListener('click', resetCustomerForm);
+
+$('#customer-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const id = $('#c-id').value;
+  const data = { name: $('#c-name').value.trim(), phone: $('#c-phone').value.trim() };
+  if (!data.name) return;
+  const existing = id && findCustomer(id);
+  if (existing) Object.assign(existing, data);
+  else state.customers.push({ id: uid('c'), ...data, points: 0, ledger: [] });
+  saveState();
+  toast(existing ? 'Customer updated' : 'Customer added');
+  resetCustomerForm();
+  renderCustomers();
+});
+
+$('#customer-table').addEventListener('click', (e) => {
+  const d = e.target.dataset;
+  if (d.editCust) {
+    const c = findCustomer(d.editCust);
+    $('#c-id').value = c.id;
+    $('#c-name').value = c.name;
+    $('#c-phone').value = c.phone;
+    $('#c-submit').textContent = 'Save Customer';
+    $('#c-name').focus();
+  }
+  if (d.deleteCust && isOwner()) {
+    const c = findCustomer(d.deleteCust);
+    if (!confirm(`Delete ${c.name}? Their history will be removed.`)) return;
+    state.customers = state.customers.filter((x) => x.id !== c.id);
+    if (cartCustomerId === c.id) cartCustomerId = null;
+    saveState();
+    renderCustomers();
+  }
+  if (d.pay) openPayment(findCustomer(d.pay));
+  if (d.history) showStatement(findCustomer(d.history));
+});
+
+// Utang payments
+const payDialog = $('#pay-dialog');
+let payCustomer = null;
+function openPayment(c) {
+  payCustomer = c;
+  $('#pay-name').textContent = c.name;
+  $('#pay-balance').textContent = money(customerBalance(c));
+  $('#pay-amount').value = (customerBalance(c) / 100).toFixed(2);
+  $('#pay-method').innerHTML = COLLECTION_METHODS.map((m) => `<option value="${m}">${methodLabel(m)}</option>`).join('');
+  $('#pay-ref').value = '';
+  payDialog.showModal();
+}
+$('#pay-cancel').addEventListener('click', () => payDialog.close());
+$('#pay-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const c = payCustomer;
+  const amount = toCents($('#pay-amount').value);
+  const bal = customerBalance(c);
+  if (amount <= 0) return;
+  if (amount > bal) { toast(`That's more than the ${money(bal)} owed`); return; }
+  const entry = {
+    id: uid('l'), date: new Date().toISOString(), type: 'payment', amount,
+    method: $('#pay-method').value, ref: $('#pay-ref').value.trim(), shiftId: openShift()?.id || null, by: cashierInfo(),
+  };
+  c.ledger.push(entry);
+  saveState();
+  payDialog.close();
+  renderCustomers();
+  showPaymentSlip(c, entry);
+});
+
+function slipHeader(title) {
+  const s = state.settings;
+  return `<h3>${escapeHtml(s.storeName)}</h3>
+    <div class="center">${s.storeAddress ? `${escapeHtml(s.storeAddress)}<br>` : ''}${s.tin ? `VAT REG TIN: ${escapeHtml(s.tin)}<br>` : ''}<strong>${title}</strong><br>${new Date().toLocaleString()}</div><hr>`;
+}
+const slipRow = (l, r, cls = '') => `<div class="row ${cls}"><span>${l}</span><span>${r}</span></div>`;
+function showDoc(html) {
+  $('#receipt').innerHTML = html;
+  if (!receiptDialog.open) receiptDialog.showModal();
+}
+
+function showPaymentSlip(c, entry) {
+  showDoc(`${slipHeader('UTANG PAYMENT')}
+    ${slipRow('Customer', escapeHtml(c.name))}
+    ${slipRow(`Paid (${escapeHtml(methodLabel(entry.method))}${entry.ref ? ` ref ${escapeHtml(entry.ref)}` : ''})`, money(entry.amount), 'bold')}
+    ${slipRow('Remaining balance', money(customerBalance(c)))}
+    ${entry.by ? slipRow('Received by', escapeHtml(entry.by.name)) : ''}
+    <hr><div class="center">This is not an official receipt.</div>`);
+}
+
+function showStatement(c) {
+  let running = 0;
+  const labels = { charge: 'Utang', payment: 'Payment', refund: 'Refund' };
+  const rows = [...c.ledger].sort((a, b) => a.date.localeCompare(b.date)).map((e) => {
+    running += e.type === 'charge' ? e.amount : -e.amount;
+    const what = `${new Date(e.date).toLocaleDateString()} ${labels[e.type]}${e.saleId ? ` #${escapeHtml(e.saleId)}` : ''}${e.method ? ` (${escapeHtml(methodLabel(e.method))})` : ''}`;
+    return slipRow(what, `${e.type === 'charge' ? '' : '-'}${money(e.amount)}`);
+  }).join('');
+  showDoc(`${slipHeader('STATEMENT OF ACCOUNT')}
+    ${slipRow('Customer', escapeHtml(c.name))}
+    ${c.phone ? slipRow('Phone', escapeHtml(c.phone)) : ''}
+    ${slipRow('Loyalty points', c.points)}
+    <hr>${rows || '<div class="center">No utang history</div>'}<hr>
+    ${slipRow('BALANCE', money(running), 'bold')}`);
+}
+
+// ---------- Held sales ----------
+const heldDialog = $('#held-dialog');
+function renderHeldCount() {
+  $('#held-count').textContent = state.held.length;
+  $('#show-held').disabled = !state.held.length;
+}
+
+function holdCurrentSale(label) {
+  state.held.push({
+    id: uid('h'), date: new Date().toISOString(), label: label || '',
+    cart: structuredClone(cart), discountType: $('#discount-type').value, discountValue: $('#discount-value').value,
+    customerId: cartCustomerId, by: cashierInfo(),
+  });
+  saveState();
+  resetSale();
+  renderHeldCount();
+}
+
+$('#hold-sale').addEventListener('click', () => {
+  if (!cart.length) { toast('Nothing to hold'); return; }
+  const label = prompt('Name or note for this order (optional)', '');
+  if (label === null) return;
+  holdCurrentSale(label.trim());
+  toast('Sale held');
+});
+
+$('#show-held').addEventListener('click', () => {
+  $('#held-list').innerHTML = [...state.held].reverse().map((h) => {
+    const items = sumBy(h.cart, (l) => l.qty);
+    const cust = h.customerId && findCustomer(h.customerId);
+    return `<li>
+      <span>${escapeHtml(h.label || 'Held sale')}<br><span class="muted">${new Date(h.date).toLocaleTimeString()} · ${items} item${items === 1 ? '' : 's'}${cust ? ` · ${escapeHtml(cust.name)}` : ''}${h.by ? ` · ${escapeHtml(h.by.name)}` : ''}</span></span>
+      <span><button class="link del" data-drop="${h.id}">Delete</button> <button class="primary" data-recall="${h.id}">Recall</button></span>
+    </li>`;
+  }).join('') || '<li class="empty">No held sales</li>';
+  heldDialog.showModal();
+});
+
+$('#held-list').addEventListener('click', (e) => {
+  const { recall, drop } = e.target.dataset;
+  if (drop) {
+    if (!confirm('Delete this held sale?')) return;
+    state.held = state.held.filter((h) => h.id !== drop);
+    saveState();
+    renderHeldCount();
+    heldDialog.close();
+  }
+  if (recall) {
+    const h = state.held.find((x) => x.id === recall);
+    if (!h) return;
+    if (cart.length) {
+      if (!confirm('Hold the current sale and recall this one?')) return;
+      state.held = state.held.filter((x) => x.id !== recall);
+      holdCurrentSale('Held automatically');
+    } else {
+      state.held = state.held.filter((x) => x.id !== recall);
+    }
+    cart = h.cart;
+    $('#discount-type').value = h.discountType || 'pct';
+    $('#discount-value').value = h.discountValue || 0;
+    cartCustomerId = h.customerId && findCustomer(h.customerId) ? h.customerId : null;
+    saveState();
+    heldDialog.close();
+    renderCartCustomer();
+    renderHeldCount();
+    const before = sumBy(cart, (l) => l.qty);
+    renderRegister();
+    if (sumBy(cart, (l) => l.qty) < before) toast('Some items were reduced to match stock');
+  }
+});
+$('#held-close').addEventListener('click', () => heldDialog.close());
+
+// ---------- Shifts, cash drawer and X/Z readings ----------
+const openShift = () => state.shifts.find((s) => !s.closedAt) || null;
+const allRefunds = () => state.sales.flatMap((s) => (s.refunds || []).map((r) => ({ ...r, sale: s })));
+const allLedger = () => state.customers.flatMap((c) => (c.ledger || []).map((e) => ({ ...e, customer: c })));
+
+function renderShiftDot() {
+  $('#shift-dot').hidden = !openShift();
+}
+
+// Totals for a set of sales and refunds, as printed on X and Z readings.
+function summarize(sales, refunds) {
+  const scSales = sales.filter((s) => isScDiscount(s.discountType));
+  const ids = sales.map((s) => Number(s.id)).filter(Boolean);
+  const payments = {};
+  for (const s of sales) {
+    for (const [m, amt] of Object.entries(paymentNet(s))) payments[m] = (payments[m] || 0) + amt;
+  }
+  const refundsByMethod = {};
+  for (const r of refunds) {
+    const m = r.method || r.sale.method;
+    refundsByMethod[m] = (refundsByMethod[m] || 0) + r.amount;
+  }
+  const total = sumBy(sales, (s) => s.total);
+  const refundTotal = sumBy(refunds, (r) => r.amount);
+  return {
+    count: sales.length,
+    firstId: ids.length ? Math.min(...ids) : null,
+    lastId: ids.length ? Math.max(...ids) : null,
+    gross: sumBy(sales, (s) => s.subtotal),
+    discount: sumBy(sales.filter((s) => !isScDiscount(s.discountType)), (s) => s.discount),
+    scDiscount: sumBy(scSales, (s) => s.discount),
+    scCount: scSales.length,
+    vatExemption: sumBy(sales, (s) => s.vatExemption || 0),
+    vatable: sumBy(sales, (s) => saleVat(s).vatable),
+    tax: sumBy(sales, (s) => s.tax),
+    exempt: sumBy(sales, (s) => saleVat(s).exempt),
+    zero: sumBy(sales, (s) => saleVat(s).zero),
+    total,
+    refunds: refundTotal,
+    refundCount: refunds.length,
+    net: total - refundTotal,
+    payments,
+    refundsByMethod,
+  };
+}
+
+// Cash that should be in the drawer for a shift.
+function shiftCash(shift) {
+  const sales = state.sales.filter((s) => s.shiftId === shift.id);
+  const cashSales = sumBy(sales, (s) => paymentNet(s).cash || 0);
+  const cashRefunds = sumBy(allRefunds().filter((r) => r.shiftId === shift.id && (r.method || r.sale.method) === 'cash'), (r) => r.amount);
+  const collections = sumBy(allLedger().filter((e) => e.type === 'payment' && e.method === 'cash' && e.shiftId === shift.id), (e) => e.amount);
+  const cashIn = sumBy((shift.moves || []).filter((m) => m.type === 'in'), (m) => m.amount);
+  const cashOut = sumBy((shift.moves || []).filter((m) => m.type === 'out'), (m) => m.amount);
+  return {
+    opening: shift.openingCash, cashSales, cashRefunds, collections, cashIn, cashOut,
+    expected: shift.openingCash + cashSales - cashRefunds + collections + cashIn - cashOut,
+  };
+}
+
+function readingHtml(title, sum, extra = {}) {
+  const r = slipRow;
+  const pay = Object.entries(sum.payments).map(([m, v]) => r(methodLabel(m), money(v))).join('');
+  const ref = Object.entries(sum.refundsByMethod).map(([m, v]) => r(`Refund ${methodLabel(m)}`, money(-v))).join('');
+  const cash = extra.cash;
+  return `${slipHeader(title)}
+    ${extra.zNo ? r('Z-reading no.', extra.zNo) : ''}
+    ${extra.by ? r('Prepared by', escapeHtml(extra.by)) : ''}
+    ${extra.period ? r('Period', extra.period) : ''}
+    ${r('Beginning receipt #', sum.firstId ?? '-')}
+    ${r('Ending receipt #', sum.lastId ?? '-')}
+    ${r('Number of sales', sum.count)}
+    <hr>
+    ${r('Gross sales', money(sum.gross))}
+    ${r('Less: Discounts', money(-sum.discount))}
+    ${r(`Less: SC/PWD discounts (${sum.scCount})`, money(-sum.scDiscount))}
+    ${r('Less: VAT exemption', money(-sum.vatExemption))}
+    ${r(`Less: Refunds (${sum.refundCount})`, money(-sum.refunds))}
+    ${r('NET SALES', money(sum.net), 'bold')}
+    <hr>
+    ${r('VATable sales', money(sum.vatable))}
+    ${r(`VAT (${state.settings.taxRate}%)`, money(sum.tax))}
+    ${r('VAT-exempt sales', money(sum.exempt))}
+    ${r('Zero-rated sales', money(sum.zero))}
+    <hr>
+    <div class="center">PAYMENTS</div>
+    ${pay || r('None', money(0))}
+    ${ref}
+    ${cash ? `<hr>
+      <div class="center">CASH DRAWER</div>
+      ${r('Opening cash', money(cash.opening))}
+      ${r('Cash sales', money(cash.cashSales))}
+      ${r('Utang collected (cash)', money(cash.collections))}
+      ${r('Cash in', money(cash.cashIn))}
+      ${r('Cash out', money(-cash.cashOut))}
+      ${r('Cash refunds', money(-cash.cashRefunds))}
+      ${r('EXPECTED CASH', money(cash.expected), 'bold')}
+      ${extra.counted !== undefined ? `${r('Counted cash', money(extra.counted))}${r('Over / short', money(extra.counted - cash.expected), 'bold')}` : ''}` : ''}
+    ${extra.grandBefore !== undefined ? `<hr>
+      ${r('Previous grand total', money(extra.grandBefore))}
+      ${r('Grand total', money(extra.grandAfter), 'bold')}` : ''}`;
+}
+
+function shiftReadingHtml(shift, title, counted) {
+  const sales = state.sales.filter((s) => s.shiftId === shift.id);
+  const refunds = allRefunds().filter((r) => r.shiftId === shift.id);
+  const period = `${new Date(shift.openedAt).toLocaleString()} – ${shift.closedAt ? new Date(shift.closedAt).toLocaleString() : 'now'}`;
+  return readingHtml(title, summarize(sales, refunds), { by: shift.openedBy?.name, period, cash: shiftCash(shift), counted });
+}
+
+function renderShift() {
+  const shift = openShift();
+  if (!shift) {
+    $('#shift-card').innerHTML = `
+      <h3>No shift open</h3>
+      <p class="muted">Open a shift at the start of the day with the cash already in the drawer. Sales then count toward the shift, and you can check the drawer when you close it.</p>
+      <form id="open-shift-form" class="inline-form">
+        <label>Opening cash <input id="open-cash" type="number" min="0" step="0.01" inputmode="decimal" value="0"></label>
+        <button class="primary" type="submit">Open shift</button>
+      </form>`;
+  } else {
+    const cash = shiftCash(shift);
+    const sales = state.sales.filter((s) => s.shiftId === shift.id);
+    $('#shift-card').innerHTML = `
+      <h3>Shift open</h3>
+      <div class="shift-info">
+        <div><span class="muted">Opened</span><strong>${new Date(shift.openedAt).toLocaleTimeString()}</strong></div>
+        <div><span class="muted">By</span><strong>${escapeHtml(shift.openedBy?.name || 'Staff')}</strong></div>
+        <div><span class="muted">Sales</span><strong>${sales.length}</strong></div>
+        <div><span class="muted">Expected cash</span><strong>${money(cash.expected)}</strong></div>
+      </div>
+      <form id="cash-move-form" class="inline-form">
+        <label>Cash in / out
+          <select id="move-type"><option value="out">Cash out (expense, payout)</option><option value="in">Cash in (add change)</option></select>
+        </label>
+        <label>Amount <input id="move-amount" type="number" min="0.01" step="0.01" inputmode="decimal" required></label>
+        <label>Note <input id="move-note" placeholder="e.g. ice, delivery"></label>
+        <button class="secondary" type="submit">Record</button>
+      </form>
+      ${(shift.moves || []).length ? `<ul class="pick-list">${shift.moves.map((m) => `<li><span>${new Date(m.date).toLocaleTimeString()} · ${m.type === 'in' ? 'Cash in' : 'Cash out'}${m.note ? ` · ${escapeHtml(m.note)}` : ''}</span><span>${money(m.type === 'in' ? m.amount : -m.amount)}</span></li>`).join('')}</ul>` : ''}
+      <form id="close-shift-form" class="inline-form">
+        <label>Counted cash in drawer <input id="count-cash" type="number" min="0" step="0.01" inputmode="decimal" required></label>
+        <button class="danger" type="submit">Close shift</button>
+      </form>`;
+  }
+  $('#z-table').innerHTML = [...state.zReadings].reverse().map((z) => `
+    <tr><td>${z.no}</td><td>${new Date(z.date).toLocaleString()}</td><td class="num">${z.summary.count}</td>
+    <td class="num">${money(z.summary.net)}</td><td class="num">${money(z.grandAfter)}</td>
+    <td class="num"><button class="link" data-z="${z.no}">View</button></td></tr>`).join('')
+    || '<tr><td colspan="6" class="empty">No Z-readings yet</td></tr>';
+  $('#shift-history').innerHTML = state.shifts.filter((s) => s.closedAt).reverse().slice(0, 30).map((s) => `
+    <tr><td>${new Date(s.openedAt).toLocaleString()}</td><td>${escapeHtml(s.openedBy?.name || 'Staff')}</td>
+    <td>${new Date(s.closedAt).toLocaleTimeString()}</td><td class="num">${money(s.expectedCash)}</td><td class="num">${money(s.countedCash)}</td>
+    <td class="num ${s.countedCash - s.expectedCash < 0 ? 'short' : s.countedCash - s.expectedCash > 0 ? 'over' : ''}">${money(s.countedCash - s.expectedCash)}</td>
+    <td class="num"><button class="link" data-shift="${s.id}">View</button></td></tr>`).join('')
+    || '<tr><td colspan="7" class="empty">No closed shifts yet</td></tr>';
+  renderShiftDot();
+}
+
+$('#shift-card').addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (e.target.id === 'open-shift-form') {
+    if (openShift()) return;
+    state.shifts.push({
+      id: uid('s'), openedAt: new Date().toISOString(), openedBy: cashierInfo(),
+      openingCash: Math.max(0, toCents($('#open-cash').value)), moves: [],
+    });
+    saveState();
+    toast('Shift opened');
+  }
+  if (e.target.id === 'cash-move-form') {
+    const amount = toCents($('#move-amount').value);
+    if (amount <= 0) return;
+    openShift().moves.push({ date: new Date().toISOString(), type: $('#move-type').value, amount, note: $('#move-note').value.trim(), by: cashierInfo() });
+    saveState();
+    toast('Recorded');
+  }
+  if (e.target.id === 'close-shift-form') {
+    const shift = openShift();
+    const counted = Math.max(0, toCents($('#count-cash').value));
+    const expected = shiftCash(shift).expected;
+    const diff = counted - expected;
+    const note = diff === 0 ? 'The drawer matches.' : `The drawer is ${diff > 0 ? 'over' : 'short'} by ${money(Math.abs(diff))}.`;
+    if (!confirm(`Close this shift? ${note}`)) return;
+    shift.closedAt = new Date().toISOString();
+    shift.closedBy = cashierInfo();
+    shift.countedCash = counted;
+    shift.expectedCash = expected;
+    saveState();
+    showDoc(shiftReadingHtml(shift, 'SHIFT CLOSE', counted));
+  }
+  renderShift();
+});
+
+$('#shift-history').addEventListener('click', (e) => {
+  const shift = state.shifts.find((s) => s.id === e.target.dataset.shift);
+  if (shift) showDoc(shiftReadingHtml(shift, 'SHIFT CLOSE', shift.countedCash));
+});
+
+$('#x-reading').addEventListener('click', () => {
+  const shift = openShift();
+  if (shift) {
+    showDoc(shiftReadingHtml(shift, 'X-READING'));
+    return;
+  }
+  // No shift open: everything since the last Z-reading.
+  const sales = state.sales.filter((s) => s.zNo === undefined);
+  const refunds = allRefunds().filter((r) => r.zNo === undefined);
+  showDoc(readingHtml('X-READING', summarize(sales, refunds), { by: currentUser?.name, period: 'Since last Z-reading' }));
+});
+
+$('#z-reading').addEventListener('click', () => {
+  if (!can('zreading')) return;
+  const sales = state.sales.filter((s) => s.zNo === undefined);
+  const hasRefunds = state.sales.some((s) => (s.refunds || []).some((r) => r.zNo === undefined));
+  if (!sales.length && !hasRefunds) { toast('No new sales since the last Z-reading'); return; }
+  if (openShift() && !confirm('A shift is still open. Run the Z-reading anyway?')) return;
+  if (!confirm(`Run Z-reading #${state.nextZ}? This closes the totals so far and can't be undone.`)) return;
+  const refunds = allRefunds().filter((r) => r.zNo === undefined);
+  const summary = summarize(sales, refunds);
+  const grandBefore = state.zReadings.length ? state.zReadings[state.zReadings.length - 1].grandAfter : 0;
+  const z = {
+    no: state.nextZ++, date: new Date().toISOString(), by: cashierInfo(), summary,
+    grandBefore, grandAfter: grandBefore + summary.net,
+  };
+  for (const s of sales) s.zNo = z.no;
+  for (const s of state.sales) for (const r of s.refunds || []) if (r.zNo === undefined) r.zNo = z.no;
+  state.zReadings.push(z);
+  saveState();
+  renderShift();
+  showZ(z);
+});
+
+function showZ(z) {
+  showDoc(readingHtml('Z-READING', z.summary, { zNo: z.no, by: z.by?.name, grandBefore: z.grandBefore, grandAfter: z.grandAfter }));
+}
+$('#z-table').addEventListener('click', (e) => {
+  const z = state.zReadings.find((x) => String(x.no) === e.target.dataset.z);
+  if (z) showZ(z);
+});
+
 // ---------- Init ----------
 function applyStoreName() {
   document.title = `${state.settings.storeName} · POS`;
@@ -1205,6 +1997,7 @@ function applyStoreName() {
 // Used by the Android app's Back button: close an open popup, then go back to the register.
 // Returns false when there is nothing to close, so the app can exit.
 window.posHandleBack = () => {
+  if (!$('#lock-screen').hidden) return false;
   const open = document.querySelector('dialog[open]');
   if (open) {
     open.close();
@@ -1219,4 +2012,8 @@ window.posHandleBack = () => {
 
 applyStoreName();
 renderLowStockBadge();
+startSession();
 renderRegister();
+renderHeldCount();
+renderShiftDot();
+renderCartCustomer();

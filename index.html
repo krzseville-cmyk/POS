@@ -9,12 +9,15 @@
 <body>
   <header class="topbar">
     <h1>Simple POS</h1>
+    <button id="user-chip" class="user-chip" hidden title="Lock or switch user"></button>
     <nav>
       <button class="tab active" data-view="register">Register</button>
       <button class="tab" data-view="products">Products <span id="low-badge" class="badge" hidden></span></button>
       <button class="tab" data-view="sales">Sales</button>
-      <button class="tab" data-view="reports">Reports</button>
-      <button class="tab" data-view="settings">Settings</button>
+      <button class="tab" data-view="customers">Customers</button>
+      <button class="tab" data-view="shift">Shift <span id="shift-dot" class="dot" hidden></span></button>
+      <button class="tab" data-view="reports" data-owner-only>Reports</button>
+      <button class="tab" data-view="settings" data-owner-only>Settings</button>
     </nav>
   </header>
 
@@ -30,7 +33,14 @@
       </div>
 
       <aside class="cart">
-        <h2>Current Sale</h2>
+        <div class="cart-head">
+          <h2>Current Sale</h2>
+          <div>
+            <button id="hold-sale" class="link">Hold</button>
+            <button id="show-held" class="link">Held (<span id="held-count">0</span>)</button>
+          </div>
+        </div>
+        <button id="cart-customer" class="customer-btn">+ Add customer</button>
         <ul id="cart-items" class="cart-items"></ul>
         <div class="cart-totals">
           <div><span>Subtotal</span><span id="subtotal">₱0.00</span></div>
@@ -59,7 +69,7 @@
 
     <!-- Products -->
     <section id="view-products" class="view">
-      <form id="product-form" class="card form-grid">
+      <form id="product-form" class="card form-grid" data-owner-only>
         <input type="hidden" id="p-id">
         <label>Name <input id="p-name" required></label>
         <label>SKU <input id="p-sku"></label>
@@ -98,6 +108,53 @@
         <table class="table">
           <thead><tr><th>Receipt #</th><th>Date</th><th class="num">Items</th><th>Payment</th><th class="num">Total</th><th>Status</th><th></th></tr></thead>
           <tbody id="sales-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Customers -->
+    <section id="view-customers" class="view">
+      <form id="customer-form" class="card form-grid">
+        <input type="hidden" id="c-id">
+        <label>Name <input id="c-name" required></label>
+        <label>Phone <input id="c-phone" inputmode="tel"></label>
+        <div class="form-actions">
+          <button type="button" id="c-cancel" class="secondary">Cancel</button>
+          <button type="submit" class="primary" id="c-submit">Add Customer</button>
+        </div>
+      </form>
+      <div class="card">
+        <div class="table-toolbar">
+          <input id="cust-filter" type="search" placeholder="Search customers" autocomplete="off">
+          <span id="utang-total" class="muted"></span>
+        </div>
+        <table class="table">
+          <thead><tr><th>Name</th><th>Phone</th><th class="num">Utang</th><th class="num">Points</th><th></th></tr></thead>
+          <tbody id="customer-table"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Shift & readings -->
+    <section id="view-shift" class="view">
+      <div class="card" id="shift-card"></div>
+      <div class="card">
+        <h3>Readings</h3>
+        <p class="muted">X-reading shows totals so far without closing anything. Z-reading closes the day's totals and can't be undone.</p>
+        <div class="form-actions start">
+          <button id="x-reading" class="secondary">X-reading</button>
+          <button id="z-reading" class="danger" data-owner-only>Z-reading (end of day)</button>
+        </div>
+        <table class="table">
+          <thead><tr><th>Z #</th><th>Date</th><th class="num">Sales</th><th class="num">Net sales</th><th class="num">Grand total</th><th></th></tr></thead>
+          <tbody id="z-table"></tbody>
+        </table>
+      </div>
+      <div class="card">
+        <h3>Shift history</h3>
+        <table class="table">
+          <thead><tr><th>Opened</th><th>By</th><th>Closed</th><th class="num">Expected</th><th class="num">Counted</th><th class="num">Over / short</th><th></th></tr></thead>
+          <tbody id="shift-history"></tbody>
         </table>
       </div>
     </section>
@@ -168,10 +225,36 @@
         <label class="inline"><input type="checkbox" id="s-incl"> Prices already include VAT</label>
         <label>Currency symbol <input id="s-currency" maxlength="3" required></label>
         <label>Low-stock alert at <input id="s-low" type="number" min="0" step="1" required></label>
+        <label>Earn 1 point per ₱ spent (0 = off) <input id="s-points-per" type="number" min="0" step="1"></label>
+        <label>1 point is worth ₱ <input id="s-point-value" type="number" min="0" step="0.01"></label>
+        <label class="inline"><input type="checkbox" id="s-require-shift"> Require an open shift to sell</label>
         <div class="form-actions">
           <button type="submit" class="primary">Save</button>
         </div>
       </form>
+      <div class="card" id="users-card">
+        <h3>Users &amp; PINs</h3>
+        <p class="muted" id="users-note"></p>
+        <table class="table">
+          <thead><tr><th>Name</th><th>Role</th><th></th></tr></thead>
+          <tbody id="users-table"></tbody>
+        </table>
+        <form id="user-form" class="form-grid">
+          <input type="hidden" id="u-id">
+          <label>Name <input id="u-name" required autocomplete="off"></label>
+          <label>PIN (4–8 digits) <input id="u-pin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="8"></label>
+          <label>Role
+            <select id="u-role">
+              <option value="cashier">Cashier</option>
+              <option value="owner">Owner</option>
+            </select>
+          </label>
+          <div class="form-actions">
+            <button type="button" id="u-cancel" class="secondary">Cancel</button>
+            <button type="submit" class="primary" id="u-submit">Add User</button>
+          </div>
+        </form>
+      </div>
       <div class="card danger-zone">
         <h3>Data</h3>
         <p>All data is stored on this device.</p>
@@ -236,6 +319,58 @@
       </div>
     </form>
   </dialog>
+
+  <!-- Held sales -->
+  <dialog id="held-dialog">
+    <h2>Held sales</h2>
+    <ul id="held-list" class="pick-list"></ul>
+    <div class="form-actions">
+      <button id="held-close" class="secondary">Close</button>
+    </div>
+  </dialog>
+
+  <!-- Customer picker -->
+  <dialog id="customer-dialog">
+    <h2>Customer</h2>
+    <input id="cust-search" type="search" placeholder="Search name or phone" autocomplete="off">
+    <ul id="cust-results" class="pick-list"></ul>
+    <form id="cust-quick" class="quick-add">
+      <input id="cq-name" placeholder="New customer name" autocomplete="off">
+      <input id="cq-phone" placeholder="Phone" inputmode="tel" autocomplete="off">
+      <button class="secondary" type="submit">Add</button>
+    </form>
+    <div class="form-actions">
+      <button id="cust-none" class="secondary">No customer</button>
+      <button id="cust-close" class="primary">Done</button>
+    </div>
+  </dialog>
+
+  <!-- Utang payment -->
+  <dialog id="pay-dialog">
+    <form id="pay-form">
+      <h2>Utang payment</h2>
+      <p><span id="pay-name"></span> owes <strong id="pay-balance"></strong></p>
+      <label>Amount <input id="pay-amount" type="number" min="0.01" step="0.01" inputmode="decimal" required></label>
+      <label>Method <select id="pay-method"></select></label>
+      <label>Reference no. (optional) <input id="pay-ref" autocomplete="off"></label>
+      <div class="form-actions">
+        <button type="button" id="pay-cancel" class="secondary">Cancel</button>
+        <button type="submit" class="primary">Record payment</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- PIN lock -->
+  <div id="lock-screen" class="lock-screen" hidden>
+    <form id="lock-form" class="card lock-card">
+      <h2 id="lock-store"></h2>
+      <p class="muted">Choose your name and enter your PIN</p>
+      <div id="lock-users" class="chips"></div>
+      <input id="lock-pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" maxlength="8">
+      <p id="lock-error" class="error" hidden></p>
+      <button class="primary" type="submit">Unlock</button>
+    </form>
+  </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
