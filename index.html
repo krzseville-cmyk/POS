@@ -26,7 +26,10 @@
     <section id="view-register" class="view active">
       <div class="catalog">
         <div class="catalog-controls">
-          <input id="search" type="search" placeholder="Search products or scan SKU…" autocomplete="off">
+          <div class="search-row">
+            <input id="search" type="search" placeholder="Search products or scan SKU…" autocomplete="off">
+            <button id="scan-btn" class="secondary" hidden>Scan</button>
+          </div>
           <div id="categories" class="chips"></div>
         </div>
         <div id="product-grid" class="product-grid"></div>
@@ -72,7 +75,9 @@
       <form id="product-form" class="card form-grid" data-owner-only>
         <input type="hidden" id="p-id">
         <label>Name <input id="p-name" required></label>
-        <label>SKU <input id="p-sku"></label>
+        <label>SKU / barcode
+          <span class="search-row"><input id="p-sku"><button type="button" id="sku-scan" class="secondary" hidden>Scan</button></span>
+        </label>
         <label>Category <input id="p-category" list="category-list" required></label>
         <datalist id="category-list"></datalist>
         <label>Price <input id="p-price" type="number" min="0" step="0.01" required></label>
@@ -316,9 +321,27 @@
           </div>
         </form>
       </div>
+      <div class="card" id="printer-card" hidden>
+        <h3>Receipt printer (Bluetooth)</h3>
+        <p class="muted">Pair the printer in your phone's Bluetooth settings first, then find it here. Without one, Print uses Android printing (including Save as PDF).</p>
+        <div class="inline-form">
+          <label>Printer <select id="pr-device"><option value="">None (use Android printing)</option></select></label>
+          <button type="button" id="pr-find" class="secondary">Find paired printers</button>
+        </div>
+        <div class="inline-form">
+          <label>Paper width
+            <select id="pr-width"><option value="32">58 mm</option><option value="48">80 mm</option></select>
+          </label>
+          <label class="inline"><input type="checkbox" id="pr-auto"> Print automatically after each sale</label>
+        </div>
+        <div class="form-actions start">
+          <button type="button" id="pr-save" class="primary">Save printer</button>
+          <button type="button" id="pr-test" class="secondary">Test print</button>
+        </div>
+      </div>
       <div class="card danger-zone">
         <h3>Data</h3>
-        <p>All data is stored on this device.</p>
+        <p>All data is stored on this device.<span id="backup-note"> In the Android app it is also backed up to your Google account (when Google backup is on in your phone's settings) and restored if you reinstall or move to a new phone.</span> Export a JSON file now and then for an extra copy.</p>
         <button id="export-data" class="secondary">Export JSON</button>
         <button id="import-data" class="secondary">Import JSON</button>
         <input type="file" id="import-file" accept="application/json,.json" hidden>
@@ -358,6 +381,7 @@
   <dialog id="receipt-dialog">
     <div id="receipt" class="receipt"></div>
     <div class="form-actions no-print">
+      <button id="print-system" class="secondary" hidden>Android print / PDF</button>
       <button id="print-receipt" class="secondary">Print</button>
       <button id="close-receipt" class="primary">Done</button>
     </div>

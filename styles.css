@@ -325,3 +325,8 @@ textarea { font: inherit; color: inherit; background: var(--surface); border: 1p
 .chart-tip strong { display: block; font-size: 1rem; }
 .chart-tip span { color: var(--muted); }
 .table-view summary { cursor: pointer; color: var(--muted); font-size: .9rem; margin-top: 8px; }
+
+/* Android: scanner and printer */
+.search-row { display: flex; gap: 6px; }
+.search-row input { flex: 1; min-width: 0; }
+.receipt-dialog-actions { flex-wrap: wrap; }

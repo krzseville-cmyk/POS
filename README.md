@@ -18,9 +18,10 @@ The `android/` folder is an Android app (Kotlin, Android 8.0+) that runs this sa
 Inside the app:
 - **Export JSON / CSV** opens Android's save screen so you choose where the file goes.
 - **Import JSON** opens Android's file picker.
-- **Print** on a receipt uses Android printing (any installed print service, or Save as PDF).
+- **Print** on a receipt uses Android printing (any installed print service, or Save as PDF), or a **Bluetooth thermal printer** (58 mm or 80 mm, ESC/POS). Pair the printer in the phone's Bluetooth settings, then pick it in Settings → Receipt printer; receipts can print automatically after each sale. Receipts, readings, payment slips and statements all print. ₱ prints as "P" because these printers only have plain letters.
+- **Scan** next to the search box (and the SKU field) opens the camera barcode scanner. It uses Google's scanner in Google Play services, so the app needs no camera permission (phones without Google Play, such as newer Huawei models, can't use it).
 - **Back** closes an open popup, then returns to the register, then leaves the app.
-- Data is stored on the device and is kept between launches. Uninstalling the app deletes it, so export a backup first.
+- **Google auto-backup:** data is backed up to the phone's Google account (when backup is on in the phone's settings, usually once a day on Wi-Fi while charging) and restored when the app is reinstalled or moved to a new phone. It is not live sync between phones. Export a JSON backup now and then as an extra copy.
 
 Build it (needs JDK 17+ and the Android SDK, e.g. from Android Studio):
 

@@ -19,8 +19,8 @@ android {
         applicationId = "com.simplepos.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "2.0.0"
     }
 
     buildTypes {
@@ -46,4 +46,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-ktx:1.9.3")
     implementation("androidx.webkit:webkit:1.12.1")
+    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    // The scanner pulls in an old Fragment library; the result APIs above need 1.3.0+.
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
 }

@@ -1,10 +1,14 @@
 package com.simplepos.app
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.util.Base64
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.webkit.ValueCallback
@@ -22,11 +26,15 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
+import org.json.JSONObject
+import java.util.concurrent.Executors
 
 /**
  * Shows the POS web app (bundled in assets) full screen and connects the few things
  * a web page cannot do on its own inside an app: saving files, picking a backup to
- * import, printing receipts and the system Back button.
+ * import, printing (Android printing or a Bluetooth receipt printer), scanning
+ * barcodes with the camera, and the system Back button.
  */
 class MainActivity : ComponentActivity() {
 
@@ -35,6 +43,16 @@ class MainActivity : ComponentActivity() {
     private var pendingSave: PendingSave? = null
 
     private class PendingSave(val text: String)
+
+    private val printer by lazy { BluetoothPrinter(this) }
+    private val printQueue = Executors.newSingleThreadExecutor()
+    private var afterBluetoothPermission: ((Boolean) -> Unit)? = null
+
+    private val requestBluetooth = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val next = afterBluetoothPermission
+        afterBluetoothPermission = null
+        next?.invoke(granted)
+    }
 
     // "Import JSON" in Settings: hands the picked file back to the page's <input type="file">.
     private val pickFile = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -148,8 +166,65 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        printQueue.shutdown()
         webView.destroy()
         super.onDestroy()
+    }
+
+    /** Sends a result to the page: window.posNative.<name>(jsonString). */
+    private fun callPage(name: String, json: JSONObject) {
+        webView.evaluateJavascript("window.posNative && window.posNative.$name(${JSONObject.quote(json.toString())})", null)
+    }
+
+    // Android 12+ asks for "Nearby devices" before talking to paired Bluetooth devices.
+    private fun withBluetooth(onDenied: () -> Unit, action: () -> Unit) {
+        val needsAsk = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        if (!needsAsk) {
+            action()
+            return
+        }
+        afterBluetoothPermission = { granted -> if (granted) action() else onDenied() }
+        requestBluetooth.launch(Manifest.permission.BLUETOOTH_CONNECT)
+    }
+
+    fun capabilities(): String = JSONObject()
+        .put("bluetooth", packageManager.hasSystemFeature(PackageManager.FEATURE_BLUETOOTH))
+        .put("scanner", true)
+        .toString()
+
+    fun listPrinters() {
+        withBluetooth({ callPage("onPrinters", JSONObject().put("error", getString(R.string.bluetooth_denied))) }) {
+            callPage("onPrinters", printer.pairedDevices())
+        }
+    }
+
+    fun printBytes(address: String, base64: String) {
+        val bytes = try {
+            Base64.decode(base64, Base64.DEFAULT)
+        } catch (e: IllegalArgumentException) {
+            callPage("onPrintResult", JSONObject().put("ok", false).put("error", "Nothing to print"))
+            return
+        }
+        withBluetooth({ callPage("onPrintResult", JSONObject().put("ok", false).put("error", getString(R.string.bluetooth_denied))) }) {
+            printQueue.execute {
+                val error = printer.print(address, bytes)
+                runOnUiThread {
+                    callPage("onPrintResult", JSONObject().put("ok", error == null).put("error", error ?: ""))
+                }
+            }
+        }
+    }
+
+    // Google's code scanner runs in Google Play services, so the app needs no camera permission.
+    fun scanBarcode(target: String) {
+        GmsBarcodeScanning.getClient(this).startScan()
+            .addOnSuccessListener { code ->
+                callPage("onScan", JSONObject().put("target", target).put("value", code.rawValue ?: ""))
+            }
+            .addOnFailureListener {
+                callPage("onScan", JSONObject().put("target", target).put("error", getString(R.string.scanner_unavailable)))
+            }
     }
 
     fun saveFile(fileName: String, text: String, mimeType: String) {

@@ -4,4 +4,6 @@
     <string name="file_saved">File saved</string>
     <string name="file_save_failed">Could not save the file</string>
     <string name="print_job_name">POS receipt</string>
+    <string name="bluetooth_denied">Allow \"Nearby devices\" for Simple POS to use a Bluetooth printer</string>
+    <string name="scanner_unavailable">The camera scanner needs Google Play services</string>
 </resources>

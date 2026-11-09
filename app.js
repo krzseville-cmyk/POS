@@ -729,6 +729,7 @@ function completeSale(t, payments, change, sc) {
   renderLowStockBadge();
   renderShiftDot();
   showReceipt(sale);
+  if (state.settings.printer?.autoPrint && state.settings.printer?.address) printDoc();
 }
 
 // ---------- Receipt ----------
@@ -785,7 +786,8 @@ function showReceipt(sale) {
   if (!receiptDialog.open) receiptDialog.showModal();
 }
 
-$('#print-receipt').addEventListener('click', () => (window.AndroidPOS ? window.AndroidPOS.print() : window.print()));
+$('#print-receipt').addEventListener('click', () => printDoc());
+$('#print-system').addEventListener('click', () => systemPrint());
 $('#close-receipt').addEventListener('click', () => receiptDialog.close());
 
 // ---------- Products ----------
@@ -1282,6 +1284,7 @@ function renderSettings() {
   $('#s-point-value').value = (s.pointValue / 100).toFixed(2);
   $('#s-require-shift').checked = s.requireShift;
   renderUsers();
+  renderPrinterSettings();
 }
 
 $('#settings-form').addEventListener('submit', (e) => {
@@ -2362,6 +2365,199 @@ function renderReportCharts(r) {
 window.addEventListener('resize', () => {
   if ($('#view-reports').classList.contains('active')) renderReports();
 });
+
+// ---------- Android app: Bluetooth printer and camera scanner ----------
+// window.AndroidPOS only exists inside the Android app. Native results come back
+// through window.posNative callbacks as JSON strings.
+const nativeApp = window.AndroidPOS || null;
+const nativeCaps = (() => {
+  try { return JSON.parse(nativeApp?.capabilities?.() || '{}'); } catch (e) { return {}; }
+})();
+
+function systemPrint() {
+  if (nativeApp) nativeApp.print();
+  else window.print();
+}
+
+// Thermal printers only know plain ASCII; swap common symbols and drop accents.
+function toPrinterText(s) {
+  return String(s)
+    .replace(/ /g, ' ')
+    .replace(/₱/g, 'P')
+    .replace(/×/g, 'x')
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—]/g, '-')
+    .replace(/·/g, '-')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^\x20-\x7e]/g, '?');
+}
+
+function wrapText(text, width) {
+  const out = [];
+  let line = '';
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    let w = word;
+    while (w.length > width) { if (line) { out.push(line); line = ''; } out.push(w.slice(0, width)); w = w.slice(width); }
+    if (!line) line = w;
+    else if (line.length + 1 + w.length <= width) line += ` ${w}`;
+    else { out.push(line); line = w; }
+  }
+  if (line) out.push(line);
+  return out.length ? out : [''];
+}
+
+// Left text and right-aligned amount on one line, wrapping the left side if needed.
+function justify(left, right, width) {
+  if (!right) return wrapText(left, width);
+  if (left.length + right.length + 1 <= width) return [left + ' '.repeat(width - left.length - right.length) + right];
+  const lines = wrapText(left, width);
+  const last = lines[lines.length - 1];
+  if (last.length + right.length + 1 <= width) lines[lines.length - 1] = last + ' '.repeat(width - last.length - right.length) + right;
+  else lines.push(' '.repeat(Math.max(0, width - right.length)) + right);
+  return lines;
+}
+
+// Text lines of an element, treating <br> as a line break.
+function elementLines(el) {
+  const clone = el.cloneNode(true);
+  clone.querySelectorAll('br').forEach((br) => br.replaceWith('\n'));
+  return clone.textContent.split('\n').map((t) => t.replace(/\s+/g, ' ').trim()).filter(Boolean);
+}
+
+/**
+ * Turns the receipt/reading on screen into ESC/POS printer commands.
+ * width: characters per line (32 for 58 mm paper, 48 for 80 mm).
+ */
+function docToEscPos(root, width) {
+  const bytes = [];
+  const ESC = 0x1b;
+  const GS = 0x1d;
+  const line = (s = '') => { for (const ch of toPrinterText(s)) bytes.push(ch.charCodeAt(0)); bytes.push(0x0a); };
+  const align = (center) => bytes.push(ESC, 0x61, center ? 1 : 0);
+  const bold = (on) => bytes.push(ESC, 0x45, on ? 1 : 0);
+  const big = (on) => bytes.push(GS, 0x21, on ? 0x11 : 0x00);
+  bytes.push(ESC, 0x40); // reset
+  for (const el of root.children) {
+    if (el.tagName === 'H3') {
+      align(true); bold(true); big(true);
+      wrapText(toPrinterText(el.textContent.trim()), Math.floor(width / 2)).forEach((l) => line(l));
+      big(false); bold(false); align(false);
+    } else if (el.tagName === 'HR') {
+      line('-'.repeat(width));
+    } else if (el.classList.contains('row')) {
+      const [l, r] = [...el.children].map((c) => toPrinterText(c.textContent.replace(/\s+/g, ' ').trim()));
+      const isBold = el.classList.contains('bold');
+      if (isBold) bold(true);
+      justify(l || '', r || '', width).forEach((x) => line(x));
+      if (isBold) bold(false);
+    } else {
+      const center = el.classList.contains('center');
+      if (center) align(true);
+      elementLines(el).forEach((t) => wrapText(toPrinterText(t), width).forEach((x) => line(x)));
+      if (center) align(false);
+    }
+  }
+  bytes.push(0x0a, 0x0a, 0x0a, 0x0a, GS, 0x56, 0x42, 0x00); // feed, then cut where supported
+  return bytes;
+}
+
+function bytesToBase64(bytes) {
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 4096) bin += String.fromCharCode(...bytes.slice(i, i + 4096));
+  return btoa(bin);
+}
+
+// Print whatever is in the receipt window: Bluetooth printer if set up, else Android/browser printing.
+function printDoc() {
+  const pr = state.settings.printer;
+  if (nativeApp?.printBytes && pr?.address) {
+    nativeApp.printBytes(pr.address, bytesToBase64(docToEscPos($('#receipt'), pr.width || 32)));
+    toast(`Printing on ${pr.name || 'printer'}…`);
+    return;
+  }
+  systemPrint();
+}
+
+let foundPrinters = [];
+function renderPrinterSettings() {
+  $('#printer-card').hidden = !nativeCaps.bluetooth;
+  $('#backup-note').hidden = !nativeApp;
+  const pr = state.settings.printer || {};
+  const list = [...foundPrinters];
+  if (pr.address && !list.some((p) => p.address === pr.address)) list.unshift({ name: pr.name, address: pr.address });
+  $('#pr-device').innerHTML = '<option value="">None (use Android printing)</option>'
+    + list.map((p) => `<option value="${escapeHtml(p.address)}">${escapeHtml(p.name || p.address)}</option>`).join('');
+  $('#pr-device').value = pr.address || '';
+  $('#pr-width').value = String(pr.width || 32);
+  $('#pr-auto').checked = Boolean(pr.autoPrint);
+}
+
+$('#pr-find').addEventListener('click', () => {
+  if (!nativeApp?.listPrinters) return;
+  toast('Looking for paired printers…');
+  nativeApp.listPrinters();
+});
+$('#pr-save').addEventListener('click', () => {
+  const address = $('#pr-device').value;
+  const opt = $('#pr-device').selectedOptions[0];
+  state.settings.printer = address
+    ? { address, name: opt ? opt.textContent : '', width: Number($('#pr-width').value) || 32, autoPrint: $('#pr-auto').checked }
+    : null;
+  saveState();
+  toast(address ? 'Printer saved' : 'Using Android printing');
+});
+$('#pr-test').addEventListener('click', () => {
+  const address = $('#pr-device').value;
+  if (!address || !nativeApp?.printBytes) { toast('Choose a printer first'); return; }
+  const width = Number($('#pr-width').value) || 32;
+  const box = document.createElement('div');
+  box.innerHTML = `<h3>${escapeHtml(state.settings.storeName)}</h3><div class="center">Printer test<br>${new Date().toLocaleString()}</div><hr>
+    ${slipRow('Paper width', width === 48 ? '80 mm' : '58 mm')}${slipRow('Amount', money(123456))}<hr><div class="center">If this looks right, you're all set.</div>`;
+  nativeApp.printBytes(address, bytesToBase64(docToEscPos(box, width)));
+});
+
+// Camera barcode scanning (Google's scanner, inside the Android app).
+$('#scan-btn').addEventListener('click', () => nativeApp?.scanBarcode?.('search'));
+$('#sku-scan').addEventListener('click', () => nativeApp?.scanBarcode?.('sku'));
+
+window.posNative = {
+  onPrinters(json) {
+    const r = JSON.parse(json);
+    if (r.error) { toast(r.error); return; }
+    foundPrinters = r.printers || [];
+    renderPrinterSettings();
+    if (foundPrinters.length) {
+      if (!$('#pr-device').value) $('#pr-device').value = foundPrinters[0].address;
+      toast(`Found ${foundPrinters.length} paired device${foundPrinters.length === 1 ? '' : 's'}`);
+    } else {
+      toast('No paired devices. Pair the printer in Bluetooth settings first.');
+    }
+  },
+  onPrintResult(json) {
+    const r = JSON.parse(json);
+    toast(r.ok ? 'Printed' : (r.error || 'Printing failed'));
+  },
+  onScan(json) {
+    const r = JSON.parse(json);
+    if (r.error) { toast(r.error); return; }
+    const code = String(r.value || '').trim();
+    if (!code) return;
+    if (r.target === 'sku') { $('#p-sku').value = code; return; }
+    const match = state.products.find((p) => (p.sku || '').toLowerCase() === code.toLowerCase());
+    if (match) {
+      showView('register');
+      pickProduct(match.id);
+    } else {
+      toast(`No product has barcode ${code}`);
+    }
+  },
+};
+
+$('#scan-btn').hidden = !nativeCaps.scanner;
+$('#sku-scan').hidden = !nativeCaps.scanner;
+$('#print-system').hidden = !nativeCaps.bluetooth;
 
 // ---------- Init ----------
 function applyStoreName() {

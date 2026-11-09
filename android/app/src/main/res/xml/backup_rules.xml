@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Google auto-backup (Android 8 to 11). The POS data lives in the WebView's local
+  storage inside the app's data folder, which is backed up. Caches are left out:
+  they rebuild themselves and only take up backup space.
+-->
+<full-backup-content>
+    <exclude domain="root" path="app_webview/Default/GPUCache/" />
+    <exclude domain="root" path="app_webview/Default/Code Cache/" />
+    <exclude domain="root" path="app_webview/Default/Service Worker/" />
+    <exclude domain="root" path="app_webview/GPUCache/" />
+</full-backup-content>
