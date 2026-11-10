@@ -1369,18 +1369,146 @@ function applyPermissions() {
   if (active?.hasAttribute('data-owner-only') && !isOwner()) showView('register');
 }
 
+// The full-screen login area holds one panel at a time: login, first-launch setup,
+// the recovery code, or the PIN reset.
+const LOCK_PANELS = ['#lock-form', '#setup-form', '#recovery-panel', '#reset-pin-form'];
+function showLockPanel(sel) {
+  LOCK_PANELS.forEach((p) => { $(p).hidden = p !== sel; });
+  document.querySelectorAll('dialog[open]').forEach((d) => d.close());
+  $('#lock-screen').hidden = false;
+}
+
 function showLock() {
   currentUser = null;
   lockUserId = state.users.length === 1 ? state.users[0].id : null;
   try { sessionStorage.removeItem(SESSION_KEY); } catch (e) { /* storage unavailable */ }
-  document.querySelectorAll('dialog[open]').forEach((d) => d.close());
   $('#lock-store').textContent = state.settings.storeName;
   renderLockUsers();
   $('#lock-pin').value = '';
   $('#lock-error').hidden = true;
-  $('#lock-screen').hidden = false;
+  showLockPanel('#lock-form');
   applyPermissions();
   $('#lock-pin').focus();
+}
+
+// First launch (or data with no users): the owner account must be created before anything else.
+function showSetup() {
+  currentUser = null;
+  $('#su-store').value = state.settings.storeName === 'My Store' ? '' : state.settings.storeName;
+  $('#setup-error').hidden = true;
+  showLockPanel('#setup-form');
+  applyPermissions();
+  $('#su-store').focus();
+}
+
+// Recovery code: 8 letters/digits without look-alikes (0/O, 1/I/L), shown as XXXX-XXXX.
+function makeRecoveryCode() {
+  const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  const raw = [...bytes].map((b) => alphabet[b % alphabet.length]).join('');
+  return `${raw.slice(0, 4)}-${raw.slice(4)}`;
+}
+const normalizeCode = (code) => String(code).toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+async function newRecoveryCode() {
+  const code = makeRecoveryCode();
+  state.recoveryHash = await hashPin('recovery', normalizeCode(code));
+  saveState();
+  return code;
+}
+
+let afterRecovery = null;
+function showRecoveryCode(code, then) {
+  $('#recovery-code').textContent = code;
+  afterRecovery = then;
+  showLockPanel('#recovery-panel');
+}
+$('#recovery-done').addEventListener('click', () => {
+  $('#recovery-code').textContent = '';
+  const next = afterRecovery;
+  afterRecovery = null;
+  if (next) next();
+});
+
+function signIn(user) {
+  currentUser = user;
+  try { sessionStorage.setItem(SESSION_KEY, user.id); } catch (err) { /* storage unavailable */ }
+  $('#lock-screen').hidden = true;
+  applyPermissions();
+  showView('register');
+}
+
+$('#setup-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = (msg) => { $('#setup-error').textContent = msg; $('#setup-error').hidden = false; };
+  const store = $('#su-store').value.trim();
+  const name = $('#su-name').value.trim();
+  const pin = $('#su-pin').value.trim();
+  if (!store || !name) { err('Enter the store name and your name'); return; }
+  if (!/^\d{4,8}$/.test(pin)) { err('PIN must be 4 to 8 digits'); return; }
+  if (pin !== $('#su-pin2').value.trim()) { err("The two PINs don't match"); return; }
+  if (usersEnabled()) { showLock(); return; }
+  const user = { id: uid('u'), name, role: 'owner' };
+  user.pinHash = await hashPin(user.id, pin);
+  state.users.push(user);
+  state.settings.storeName = store;
+  applyStoreName();
+  $('#setup-form').reset();
+  const code = await newRecoveryCode(); // also saves
+  showRecoveryCode(code, () => {
+    signIn(user);
+    toast(`Welcome, ${name}`);
+  });
+});
+
+// Forgot PIN: the recovery code sets a new PIN for the owner.
+$('#forgot-pin').addEventListener('click', () => {
+  if (!state.recoveryHash) {
+    alert('No recovery code was set up on this device. Ask another owner to sign in and change your PIN in Settings → Users.');
+    return;
+  }
+  $('#reset-pin-form').reset();
+  $('#rp-error').hidden = true;
+  showLockPanel('#reset-pin-form');
+  $('#rp-code').focus();
+});
+$('#rp-back').addEventListener('click', showLock);
+$('#reset-pin-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const err = (msg) => { $('#rp-error').textContent = msg; $('#rp-error').hidden = false; };
+  if (lockedOut()) { err(lockoutMessage()); return; }
+  const pin = $('#rp-pin').value.trim();
+  if (await hashPin('recovery', normalizeCode($('#rp-code').value)) !== state.recoveryHash) {
+    noteFailedAttempt();
+    err('That recovery code is not right');
+    return;
+  }
+  if (!/^\d{4,8}$/.test(pin)) { err('PIN must be 4 to 8 digits'); return; }
+  failedAttempts = 0;
+  // The owner picked on the login screen, or else the first owner.
+  const picked = state.users.find((u) => u.id === lockUserId && u.role === 'owner');
+  const owner = picked || state.users.find((u) => u.role === 'owner');
+  owner.pinHash = await hashPin(owner.id, pin);
+  // The old code has been used, so replace it.
+  const code = await newRecoveryCode();
+  showRecoveryCode(code, () => {
+    signIn(owner);
+    toast(`New PIN set for ${owner.name}`);
+  });
+});
+
+// Slow down PIN guessing: after 5 wrong tries, wait 30 seconds.
+let failedAttempts = 0;
+let lockoutUntil = 0;
+const lockedOut = () => Date.now() < lockoutUntil;
+const lockoutMessage = () => `Too many wrong tries. Wait ${Math.ceil((lockoutUntil - Date.now()) / 1000)} seconds.`;
+function noteFailedAttempt() {
+  failedAttempts++;
+  if (failedAttempts >= 5) {
+    lockoutUntil = Date.now() + 30000;
+    failedAttempts = 0;
+  }
 }
 
 function renderLockUsers() {
@@ -1390,7 +1518,7 @@ function renderLockUsers() {
 }
 
 function startSession() {
-  if (!usersEnabled()) { applyPermissions(); return; }
+  if (!usersEnabled()) { showSetup(); return; }
   let id = null;
   try { id = sessionStorage.getItem(SESSION_KEY); } catch (e) { /* storage unavailable */ }
   currentUser = state.users.find((u) => u.id === id) || null;
@@ -1411,16 +1539,15 @@ $('#lock-form').addEventListener('submit', async (e) => {
   const user = state.users.find((u) => u.id === lockUserId);
   const showError = (msg) => { $('#lock-error').textContent = msg; $('#lock-error').hidden = false; };
   if (!user) { showError('Choose your name first'); return; }
+  if (lockedOut()) { showError(lockoutMessage()); return; }
   if (await hashPin(user.id, $('#lock-pin').value) !== user.pinHash) {
-    showError('Wrong PIN');
+    noteFailedAttempt();
+    showError(lockedOut() ? lockoutMessage() : 'Wrong PIN');
     $('#lock-pin').value = '';
     return;
   }
-  currentUser = user;
-  try { sessionStorage.setItem(SESSION_KEY, user.id); } catch (err) { /* storage unavailable */ }
-  $('#lock-screen').hidden = true;
-  applyPermissions();
-  showView('register');
+  failedAttempts = 0;
+  signIn(user);
   toast(`Welcome, ${user.name}`);
 });
 
@@ -1431,9 +1558,10 @@ $('#user-chip').addEventListener('click', () => {
 
 function renderUsers() {
   const none = !usersEnabled();
-  $('#users-note').textContent = none
-    ? 'No users yet, so the app opens without a PIN. Add yourself as the owner to turn on PIN login.'
-    : 'Everyone picks their name and enters a PIN to use the register. Cashiers can sell, hold sales, handle customers and shifts, and run X-readings.';
+  $('#users-note').textContent = 'Everyone picks their name and enters a PIN to open the app. Cashiers can sell, hold sales, handle customers and shifts, and run X-readings.';
+  $('#recovery-status').textContent = state.recoveryHash
+    ? 'A recovery code is set for resetting a forgotten owner PIN.'
+    : 'No recovery code yet. Make one so a forgotten owner PIN can be reset.';
   $('#users-table').innerHTML = state.users.map((u) => `
     <tr>
       <td>${escapeHtml(u.name)}${u.id === currentUser?.id ? ' <small class="muted">(you)</small>' : ''}</td>
@@ -1471,12 +1599,12 @@ $('#users-table').addEventListener('click', (e) => {
   }
   if (deleteId) {
     const u = state.users.find((x) => x.id === deleteId);
-    if (u.role === 'owner' && ownerCount() === 1 && state.users.length > 1) {
-      toast('Add another owner before deleting the last one');
+    // Login is always on, so there must always be an owner.
+    if (u.role === 'owner' && ownerCount() === 1) {
+      toast('There must be at least one owner. Add another owner first.');
       return;
     }
-    const last = state.users.length === 1;
-    if (!confirm(last ? `Delete ${u.name}? PIN login will turn off.` : `Delete ${u.name}?`)) return;
+    if (!confirm(`Delete ${u.name}?`)) return;
     state.users = state.users.filter((x) => x.id !== deleteId);
     if (currentUser?.id === deleteId) currentUser = null;
     saveState();
@@ -1487,6 +1615,16 @@ $('#users-table').addEventListener('click', (e) => {
 });
 
 $('#u-cancel').addEventListener('click', resetUserForm);
+
+$('#new-recovery').addEventListener('click', async () => {
+  if (!isOwner()) return;
+  if (state.recoveryHash && !confirm('Make a new recovery code? The old one will stop working.')) return;
+  const code = await newRecoveryCode();
+  showRecoveryCode(code, () => {
+    $('#lock-screen').hidden = true;
+    renderUsers();
+  });
+});
 
 $('#user-form').addEventListener('submit', async (e) => {
   e.preventDefault();

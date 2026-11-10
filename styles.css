@@ -330,3 +330,9 @@ textarea { font: inherit; color: inherit; background: var(--surface); border: 1p
 .search-row { display: flex; gap: 6px; }
 .search-row input { flex: 1; min-width: 0; }
 .receipt-dialog-actions { flex-wrap: wrap; }
+
+/* First-launch setup and PIN recovery */
+.lock-card label { display: flex; flex-direction: column; gap: 4px; font-size: .9rem; color: var(--muted); text-align: left; }
+.lock-card p { margin: 0; }
+.recovery-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.8rem; font-weight: 700; letter-spacing: .1em; padding: 12px; border: 2px dashed var(--border); border-radius: 8px; user-select: all; }
+.lock-screen { overflow-y: auto; }

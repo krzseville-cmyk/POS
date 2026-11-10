@@ -301,6 +301,7 @@
       <div class="card" id="users-card">
         <h3>Users &amp; PINs</h3>
         <p class="muted" id="users-note"></p>
+        <p class="muted"><span id="recovery-status"></span> <button type="button" class="link" id="new-recovery">Make a new recovery code</button></p>
         <table class="table">
           <thead><tr><th>Name</th><th>Role</th><th></th></tr></thead>
           <tbody id="users-table"></tbody>
@@ -471,6 +472,35 @@
       <input id="lock-pin" type="password" inputmode="numeric" autocomplete="off" placeholder="PIN" maxlength="8">
       <p id="lock-error" class="error" hidden></p>
       <button class="primary" type="submit">Unlock</button>
+      <button type="button" class="link" id="forgot-pin">Forgot PIN?</button>
+    </form>
+
+    <form id="setup-form" class="card lock-card" hidden>
+      <h2>Welcome to Simple POS</h2>
+      <p class="muted">Create the owner account. You'll pick your name and enter this PIN each time the app opens.</p>
+      <label>Store name <input id="su-store" required autocomplete="off"></label>
+      <label>Your name <input id="su-name" required autocomplete="off"></label>
+      <label>PIN (4–8 digits) <input id="su-pin" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" required></label>
+      <label>Enter the PIN again <input id="su-pin2" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password" required></label>
+      <p id="setup-error" class="error" hidden></p>
+      <button class="primary" type="submit">Create account</button>
+    </form>
+
+    <div id="recovery-panel" class="card lock-card" hidden>
+      <h2>Save your recovery code</h2>
+      <p>If the owner PIN is ever forgotten, this code lets you set a new one. Write it down and keep it somewhere safe. It won't be shown again.</p>
+      <p class="recovery-code" id="recovery-code"></p>
+      <button class="primary" type="button" id="recovery-done">I've written it down</button>
+    </div>
+
+    <form id="reset-pin-form" class="card lock-card" hidden>
+      <h2>Reset owner PIN</h2>
+      <p class="muted">Enter the recovery code you saved when the owner account was created.</p>
+      <label>Recovery code <input id="rp-code" autocomplete="off" autocapitalize="characters"></label>
+      <label>New owner PIN (4–8 digits) <input id="rp-pin" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password"></label>
+      <p id="rp-error" class="error" hidden></p>
+      <button class="primary" type="submit">Set new PIN</button>
+      <button type="button" class="link" id="rp-back">Back to login</button>
     </form>
   </div>
 
