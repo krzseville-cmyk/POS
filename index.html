@@ -128,10 +128,10 @@
           <span id="low-stock-summary" class="muted"></span>
           <label class="inline"><input type="checkbox" id="low-only"> Show low stock only</label>
         </div>
-        <table class="table">
+        <div class="table-wrap"><table class="table">
           <thead><tr><th>Name</th><th>SKU</th><th>Category</th><th>VAT</th><th class="num">Price</th><th class="num" data-owner-only>Cost</th><th class="num" data-owner-only>Margin</th><th class="num">Stock</th><th></th></tr></thead>
           <tbody id="product-table"></tbody>
-        </table>
+        </table></div>
       </div>
 
       <form id="stockin-form" class="card form-grid" data-owner-only>
@@ -148,10 +148,10 @@
       </form>
       <div class="card" data-owner-only>
         <h3>Recent deliveries</h3>
-        <table class="table">
+        <div class="table-wrap"><table class="table">
           <thead><tr><th>Date</th><th>Product</th><th class="num">Qty</th><th class="num">Unit cost</th><th>Supplier</th><th>Ref</th></tr></thead>
           <tbody id="stockin-table"></tbody>
-        </table>
+        </table></div>
       </div>
       <div class="card" data-owner-only>
         <h3>Suppliers</h3>
@@ -160,10 +160,10 @@
           <input id="sup-contact" placeholder="Contact / phone" autocomplete="off">
           <button class="secondary" type="submit">Add supplier</button>
         </form>
-        <table class="table">
+        <div class="table-wrap"><table class="table">
           <thead><tr><th>Name</th><th>Contact</th><th class="num">Deliveries</th><th class="num">Total cost</th><th></th></tr></thead>
           <tbody id="supplier-table"></tbody>
-        </table>
+        </table></div>
       </div>
     </section>
 
@@ -171,10 +171,10 @@
     <section id="view-sales" class="view">
       <div class="stats" id="sales-stats"></div>
       <div class="card">
-        <table class="table">
+        <div class="table-wrap"><table class="table">
           <thead><tr><th>Receipt #</th><th>Date</th><th class="num">Items</th><th>Payment</th><th class="num">Total</th><th>Status</th><th></th></tr></thead>
           <tbody id="sales-table"></tbody>
-        </table>
+        </table></div>
       </div>
     </section>
 
@@ -194,10 +194,10 @@
           <input id="cust-filter" type="search" placeholder="Search customers" autocomplete="off">
           <span id="utang-total" class="muted"></span>
         </div>
-        <table class="table">
+        <div class="table-wrap"><table class="table">
           <thead><tr><th>Name</th><th>Phone</th><th class="num">Utang</th><th class="num">Points</th><th></th></tr></thead>
           <tbody id="customer-table"></tbody>
-        </table>
+        </table></div>
       </div>
     </section>
 
@@ -211,17 +211,17 @@
           <button id="x-reading" class="secondary">X-reading</button>
           <button id="z-reading" class="danger" data-owner-only>Z-reading (end of day)</button>
         </div>
-        <table class="table">
+        <div class="table-wrap"><table class="table">
           <thead><tr><th>Z #</th><th>Date</th><th class="num">Sales</th><th class="num">Net sales</th><th class="num">Grand total</th><th></th></tr></thead>
           <tbody id="z-table"></tbody>
-        </table>
+        </table></div>
       </div>
       <div class="card">
         <h3>Shift history</h3>
-        <table class="table">
+        <div class="table-wrap"><table class="table">
           <thead><tr><th>Opened</th><th>By</th><th>Closed</th><th class="num">Expected</th><th class="num">Counted</th><th class="num">Over / short</th><th></th></tr></thead>
           <tbody id="shift-history"></tbody>
-        </table>
+        </table></div>
       </div>
     </section>
 
@@ -252,47 +252,47 @@
           <div id="chart-hours" class="chart"></div>
           <details class="table-view">
             <summary>Show as table</summary>
-            <table class="table">
+            <div class="table-wrap"><table class="table">
               <thead><tr><th>Hour</th><th class="num">Sales</th><th class="num">Net sales</th></tr></thead>
               <tbody id="r-hours"></tbody>
-            </table>
+            </table></div>
           </details>
         </div>
       </div>
       <div class="report-grid">
         <div class="card">
           <h3>Payment methods</h3>
-          <table class="table">
+          <div class="table-wrap"><table class="table">
             <thead><tr><th>Method</th><th class="num">Sales</th><th class="num">Total</th><th class="num">Refunds</th><th class="num">Net</th></tr></thead>
             <tbody id="r-payments"></tbody>
-          </table>
+          </table></div>
         </div>
         <div class="card">
           <h3>VAT summary</h3>
-          <table class="table">
+          <div class="table-wrap"><table class="table">
             <tbody id="r-vat"></tbody>
-          </table>
+          </table></div>
         </div>
         <div class="card">
           <h3>Categories</h3>
-          <table class="table">
+          <div class="table-wrap"><table class="table">
             <thead><tr><th>Category</th><th class="num">Qty sold</th><th class="num">Gross sales</th></tr></thead>
             <tbody id="r-categories"></tbody>
-          </table>
+          </table></div>
         </div>
         <div class="card">
           <h3>Top products</h3>
-          <table class="table">
+          <div class="table-wrap"><table class="table">
             <thead><tr><th>Product</th><th class="num">Qty sold</th><th class="num">Refunded</th><th class="num">Gross sales</th><th class="num">Profit</th></tr></thead>
             <tbody id="r-products"></tbody>
-          </table>
+          </table></div>
         </div>
         <div class="card">
           <h3>By day</h3>
-          <table class="table">
+          <div class="table-wrap"><table class="table">
             <thead><tr><th>Date</th><th class="num">Sales</th><th class="num">Total</th><th class="num">Refunds</th><th class="num">Net</th></tr></thead>
             <tbody id="r-days"></tbody>
-          </table>
+          </table></div>
         </div>
       </div>
     </section>
@@ -318,11 +318,12 @@
       <div class="card" id="users-card">
         <h3>Users &amp; PINs</h3>
         <p class="muted" id="users-note"></p>
-        <p class="muted"><span id="recovery-status"></span> <button type="button" class="link" id="new-recovery">Make a new recovery code</button></p>
-        <table class="table">
+        <p class="muted" id="recovery-status"></p>
+        <p><button type="button" class="link" id="new-recovery">Make a new recovery code</button></p>
+        <div class="table-wrap"><table class="table">
           <thead><tr><th>Name</th><th>Role</th><th></th></tr></thead>
           <tbody id="users-table"></tbody>
-        </table>
+        </table></div>
         <form id="user-form" class="form-grid">
           <input type="hidden" id="u-id">
           <label>Name <input id="u-name" required autocomplete="off"></label>
@@ -410,10 +411,10 @@
   <dialog id="refund-dialog">
     <form id="refund-form">
       <h2>Refund receipt #<span id="rf-id"></span></h2>
-      <table class="table">
+      <div class="table-wrap"><table class="table">
         <thead><tr><th>Item</th><th class="num">Refundable</th><th class="num">Refund qty</th></tr></thead>
         <tbody id="rf-lines"></tbody>
-      </table>
+      </table></div>
       <label class="inline"><input type="checkbox" id="rf-restock" checked> Return items to stock</label>
       <p class="rf-to">Refund <strong id="rf-amount"></strong> via <select id="rf-method"></select></p>
       <div class="form-actions">
