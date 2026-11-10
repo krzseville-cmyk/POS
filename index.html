@@ -9,7 +9,10 @@
 <body>
   <header class="topbar">
     <h1>Simple POS</h1>
-    <button id="user-chip" class="user-chip" hidden title="Lock or switch user"></button>
+    <div class="user-box">
+      <span id="user-chip" class="user-chip" hidden></span>
+      <button id="logout-btn" class="secondary logout-btn" hidden>Log out</button>
+    </div>
     <nav>
       <button class="tab active" data-view="register">Register</button>
       <button class="tab" data-view="products">Products <span id="low-badge" class="badge" hidden></span></button>

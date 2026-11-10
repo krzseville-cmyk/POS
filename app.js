@@ -37,21 +37,25 @@ const DEFAULT_SETTINGS = {
   requireShift: false,
 };
 
+// Sample products that earlier versions added to every new install. Unused ones are
+// removed once (see removeUnusedSamples) so stores start with their own products.
+const OLD_SAMPLE_PRODUCTS = {
+  p1: 'Espresso',
+  p2: 'Cappuccino',
+  p3: 'Latte',
+  p4: 'Cold Brew',
+  p5: 'Green Tea',
+  p6: 'Chai Latte',
+  p7: 'Croissant',
+  p8: 'Blueberry Muffin',
+  p9: 'Bagel',
+  p10: 'Bottled Water',
+  p11: 'Orange Juice',
+};
+
 const DEFAULT_STATE = {
   settings: { ...DEFAULT_SETTINGS },
-  products: [
-    { id: 'p1', name: 'Espresso', sku: '1001', category: 'Coffee', price: 12000, stock: 100, vat: 'vatable' },
-    { id: 'p2', name: 'Cappuccino', sku: '1002', category: 'Coffee', price: 15000, stock: 100, vat: 'vatable' },
-    { id: 'p3', name: 'Latte', sku: '1003', category: 'Coffee', price: 16000, stock: 100, vat: 'vatable' },
-    { id: 'p4', name: 'Cold Brew', sku: '1004', category: 'Coffee', price: 15500, stock: 60, vat: 'vatable' },
-    { id: 'p5', name: 'Green Tea', sku: '2001', category: 'Tea', price: 11000, stock: 80, vat: 'vatable' },
-    { id: 'p6', name: 'Chai Latte', sku: '2002', category: 'Tea', price: 15000, stock: 80, vat: 'vatable' },
-    { id: 'p7', name: 'Croissant', sku: '3001', category: 'Bakery', price: 9500, stock: 24, vat: 'vatable' },
-    { id: 'p8', name: 'Blueberry Muffin', sku: '3002', category: 'Bakery', price: 11000, stock: 18, vat: 'vatable' },
-    { id: 'p9', name: 'Bagel', sku: '3003', category: 'Bakery', price: 8500, stock: 4, vat: 'vatable' },
-    { id: 'p10', name: 'Bottled Water', sku: '4001', category: 'Drinks', price: 3500, stock: 48, vat: 'vatable' },
-    { id: 'p11', name: 'Orange Juice', sku: '4002', category: 'Drinks', price: 9000, stock: 30, vat: 'vatable' },
-  ],
+  products: [],
   sales: [],
   nextReceipt: 1001,
   users: [],
@@ -62,14 +66,25 @@ const DEFAULT_STATE = {
   customers: [],
   stockIns: [],
   suppliers: [],
+  samplesRemoved: true,
 };
 
 // ---------- Storage ----------
+// Removes the old sample products, but only ones never sold, held or restocked.
+function removeUnusedSamples(data) {
+  const used = new Set();
+  for (const sale of data.sales || []) for (const l of sale.items || []) used.add(l.productId);
+  for (const h of data.held || []) for (const l of h.cart || []) used.add(l.productId);
+  for (const x of data.stockIns || []) used.add(x.productId);
+  return data.products.filter((p) => !(OLD_SAMPLE_PRODUCTS[p.id] === p.name && !used.has(p.id)));
+}
+
 // Fills in missing fields so data saved by older versions (or imported files) keeps working.
 function normalizeState(data) {
   if (!data || typeof data !== 'object' || !Array.isArray(data.products) || !Array.isArray(data.sales)) {
     throw new Error('Not a valid POS data file');
   }
+  if (!data.samplesRemoved) data = { ...data, products: removeUnusedSamples(data), samplesRemoved: true };
   const saved = data.settings || {};
   const settings = { ...DEFAULT_SETTINGS, ...saved };
   // Older versions added tax on top of prices; keep that for their data until changed in Settings.
@@ -126,10 +141,15 @@ function cleanOptions(list) {
     .map((o) => ({ name: String(o.name).trim(), price: Math.max(0, Math.round(Number(o.price) || 0)) }));
 }
 
+let cleanedOnLoad = false;
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return normalizeState(JSON.parse(raw));
+    if (raw) {
+      const data = JSON.parse(raw);
+      cleanedOnLoad = !data.samplesRemoved;
+      return normalizeState(data);
+    }
   } catch (e) {
     console.warn('Could not load saved data', e);
   }
@@ -349,6 +369,12 @@ function visibleProducts() {
 
 function renderGrid() {
   const items = visibleProducts();
+  if (!state.products.length) {
+    $('#product-grid').innerHTML = `<div class="empty">No products yet.<br>${can('products')
+      ? '<button class="primary" data-go="products">Add your first product</button>'
+      : 'Ask the owner to add products.'}</div>`;
+    return;
+  }
   if (!items.length) {
     $('#product-grid').innerHTML = '<div class="empty">No products found</div>';
     return;
@@ -369,6 +395,7 @@ function renderGrid() {
 }
 
 $('#product-grid').addEventListener('click', (e) => {
+  if (e.target.closest('[data-go]')) { showView('products'); $('#p-name').focus(); return; }
   const btn = e.target.closest('.product');
   if (btn) pickProduct(btn.dataset.id);
 });
@@ -1364,7 +1391,8 @@ function applyPermissions() {
   document.querySelectorAll('[data-owner-only]').forEach((el) => { el.hidden = !isOwner(); });
   const chip = $('#user-chip');
   chip.hidden = !usersEnabled() || !currentUser;
-  if (currentUser) chip.textContent = `${currentUser.name} · ${currentUser.role === 'owner' ? 'Owner' : 'Cashier'} · Lock`;
+  $('#logout-btn').hidden = chip.hidden;
+  if (currentUser) chip.textContent = `${currentUser.name} · ${currentUser.role === 'owner' ? 'Owner' : 'Cashier'}`;
   const active = document.querySelector('.tab.active');
   if (active?.hasAttribute('data-owner-only') && !isOwner()) showView('register');
 }
@@ -1551,9 +1579,12 @@ $('#lock-form').addEventListener('submit', async (e) => {
   toast(`Welcome, ${user.name}`);
 });
 
-$('#user-chip').addEventListener('click', () => {
-  if (cart.length && !confirm('Lock the register? The current sale stays in the cart.')) return;
+// Log out: back to the login screen. A sale in progress stays in the cart for the next login.
+$('#logout-btn').addEventListener('click', () => {
+  if (cart.length && !confirm('Log out? The current sale stays in the cart.')) return;
+  const name = currentUser?.name;
   showLock();
+  if (name) toast(`${name} logged out`);
 });
 
 function renderUsers() {
@@ -2719,6 +2750,8 @@ window.posHandleBack = () => {
   return false;
 };
 
+// Keep the one-time sample cleanup so it doesn't run again on the next launch.
+if (cleanedOnLoad) saveState();
 applyStoreName();
 renderLowStockBadge();
 startSession();

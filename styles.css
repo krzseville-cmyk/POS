@@ -265,7 +265,10 @@ dialog { max-height: calc(100vh - 32px); overflow-y: auto; }
 }
 
 /* Users, shifts, customers */
-.user-chip { border-radius: 999px; padding: 4px 12px; font-size: .85rem; margin-right: auto; }
+.user-box { display: flex; align-items: center; gap: 8px; margin-right: auto; }
+.user-chip { border: 1px solid var(--border); border-radius: 999px; padding: 4px 12px; font-size: .85rem; color: var(--muted); }
+.logout-btn { padding: 4px 12px; font-size: .85rem; }
+.empty .primary { margin-top: 12px; }
 .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--success); margin-left: 4px; vertical-align: middle; }
 .cart-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
 .cart-head h2 { margin: 0; }
@@ -336,3 +339,4 @@ textarea { font: inherit; color: inherit; background: var(--surface); border: 1p
 .lock-card p { margin: 0; }
 .recovery-code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1.8rem; font-weight: 700; letter-spacing: .1em; padding: 12px; border: 2px dashed var(--border); border-radius: 8px; user-select: all; }
 .lock-screen { overflow-y: auto; }
+.product-grid .empty { grid-column: 1 / -1; }
