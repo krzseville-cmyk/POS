@@ -85,7 +85,7 @@ button.link.del { color: var(--danger); }
   font-size: 1.3rem;
   line-height: 1;
 }
-.menu { display: flex; flex-direction: column; gap: 2px; }
+.menu { display: flex; flex-direction: column; gap: 4px; }
 .tab {
   display: flex;
   align-items: center;
@@ -212,7 +212,7 @@ main { flex: 1; padding: 16px; min-height: 0; }
   align-items: end;
 }
 .form-grid label, dialog label { display: flex; flex-direction: column; gap: 4px; font-size: .9rem; color: var(--muted); }
-.form-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.form-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
 .table { width: 100%; border-collapse: collapse; }
 .table th, .table td { padding: 8px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
 .table th { color: var(--muted); font-weight: 500; font-size: .85rem; }
@@ -221,7 +221,8 @@ main { flex: 1; padding: 16px; min-height: 0; }
 .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
 .stat .label { color: var(--muted); font-size: .85rem; }
 .stat .value { font-size: 1.5rem; font-weight: 700; margin-top: 4px; }
-.danger-zone button { margin-right: 8px; }
+.danger-zone { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.danger-zone > h3, .danger-zone > p { flex: 1 1 100%; margin: 0; }
 .muted { color: var(--muted); }
 label.inline { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
 .table-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -394,3 +395,8 @@ textarea { font: inherit; color: inherit; background: var(--surface); border: 1p
 .product-grid .empty { grid-column: 1 / -1; }
 /* Keep scrolled-to items clear of the sticky title bar. */
 .card, form, .chart { scroll-margin-top: calc(var(--topbar) + 12px); }
+
+/* Spacing: nothing touches */
+.form-grid > .form-actions, .form-grid > .photo-field { grid-column: 1 / -1; }
+.table + form, .table + .form-grid { margin-top: 16px; }
+.pick-list li > span:last-child:not(:first-child) { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; flex: none; }
