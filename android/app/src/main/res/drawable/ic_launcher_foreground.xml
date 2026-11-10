@@ -1,14 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A simple receipt shape, drawn inside the 66dp safe zone of the 108dp adaptive icon. -->
+<!-- Philippine peso sign (₱), drawn inside the 66dp safe zone of the 108dp adaptive icon. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- The P: upright stroke and bowl -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M38,30h32v46l-4,-3 -4,3 -4,-3 -4,3 -4,-3 -4,3 -4,-3 -4,3z" />
+        android:pathData="M44,30 L44,78 M44,34 L58,34 A12,12 0 0,1 58,58 L44,58"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- The two bars across it -->
     <path
-        android:fillColor="#2563EB"
-        android:pathData="M43,38h22v3h-22zM43,45h22v3h-22zM43,52h14v3h-14zM43,61h22v4h-22z" />
+        android:pathData="M34,42 L74,42 M34,50 L74,50"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:strokeLineCap="round" />
 </vector>

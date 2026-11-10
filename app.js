@@ -67,6 +67,7 @@ const DEFAULT_STATE = {
   stockIns: [],
   suppliers: [],
   samplesRemoved: true,
+  pesoSwitched: true,
 };
 
 // ---------- Storage ----------
@@ -87,6 +88,9 @@ function normalizeState(data) {
   if (!data.samplesRemoved) data = { ...data, products: removeUnusedSamples(data), samplesRemoved: true };
   const saved = data.settings || {};
   const settings = { ...DEFAULT_SETTINGS, ...saved };
+  // The first version saved "$" as the currency; switch it to the peso once.
+  if (!data.pesoSwitched && settings.currency === '$') settings.currency = '₱';
+  data = { ...data, pesoSwitched: true };
   // Older versions added tax on top of prices; keep that for their data until changed in Settings.
   if (data.settings && saved.pricesIncludeTax === undefined) settings.pricesIncludeTax = false;
   settings.pricesIncludeTax = Boolean(settings.pricesIncludeTax);
@@ -147,7 +151,7 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const data = JSON.parse(raw);
-      cleanedOnLoad = !data.samplesRemoved;
+      cleanedOnLoad = !data.samplesRemoved || !data.pesoSwitched;
       return normalizeState(data);
     }
   } catch (e) {
@@ -313,11 +317,29 @@ document.querySelectorAll('.tab').forEach((btn) => {
   btn.addEventListener('click', () => showView(btn.dataset.view));
 });
 
+// On phones the left menu is a drawer opened with the ☰ button.
+const menuOpen = () => document.body.classList.contains('menu-open');
+function openMenu() {
+  document.body.classList.add('menu-open');
+  $('#menu-backdrop').hidden = false;
+  $('#menu-btn').setAttribute('aria-expanded', 'true');
+}
+function closeMenu() {
+  document.body.classList.remove('menu-open');
+  $('#menu-backdrop').hidden = true;
+  $('#menu-btn').setAttribute('aria-expanded', 'false');
+}
+$('#menu-btn').addEventListener('click', () => (menuOpen() ? closeMenu() : openMenu()));
+$('#menu-backdrop').addEventListener('click', closeMenu);
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && menuOpen()) closeMenu(); });
+
 function showView(name) {
   // Cashiers can't open owner-only screens.
   const tab = document.querySelector(`.tab[data-view="${name}"]`);
   if (tab?.hasAttribute('data-owner-only') && !isOwner()) name = 'register';
   document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
+  $('#page-title').textContent = document.querySelector(`.tab[data-view="${name}"]`)?.dataset.title || '';
+  closeMenu();
   document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${name}`));
   if (name === 'register') renderRegister();
   if (name === 'products') renderProducts();
@@ -1583,6 +1605,7 @@ $('#lock-form').addEventListener('submit', async (e) => {
 $('#logout-btn').addEventListener('click', () => {
   if (cart.length && !confirm('Log out? The current sale stays in the cart.')) return;
   const name = currentUser?.name;
+  closeMenu();
   showLock();
   if (name) toast(`${name} logged out`);
 });
@@ -2731,13 +2754,14 @@ $('#print-system').hidden = !nativeCaps.bluetooth;
 // ---------- Init ----------
 function applyStoreName() {
   document.title = `${state.settings.storeName} · POS`;
-  $('.topbar h1').textContent = state.settings.storeName;
+  $('#store-title').textContent = state.settings.storeName;
 }
 
 // Used by the Android app's Back button: close an open popup, then go back to the register.
 // Returns false when there is nothing to close, so the app can exit.
 window.posHandleBack = () => {
   if (!$('#lock-screen').hidden) return false;
+  if (menuOpen()) { closeMenu(); return true; }
   const open = document.querySelector('dialog[open]');
   if (open) {
     open.close();

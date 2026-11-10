@@ -35,6 +35,9 @@ Or open the `android` folder in Android Studio and press Run. To install the APK
 
 ## Features
 
+Screens are listed in a menu on the left (Register, Products, Sales, Customers, Shift, Reports, Settings), with the store name, a ₱ logo, and your name with **Log out** at the bottom. On phones the menu slides out from the ☰ button. The app icon is a peso sign.
+
+
 - **Register** – product grid with category filters and search; press Enter with a SKU to add it (works with USB barcode scanners). Cart with quantity controls, % or fixed discount, and tax.
 - **Checkout** – cash (quick-tender buttons for peso bills, change calculation), card, GCash, Maya or QR Ph (with optional reference number). Split one sale across several methods; card and e-wallet parts can't be more than the amount due, and change comes from cash.
 - **VAT (Philippines)** – 12% VAT by default, with prices that already include VAT (can be switched to VAT added on top). Each product is VATable, VAT-exempt or zero-rated. Receipts show VATable sales, VAT, VAT-exempt and zero-rated sales, with V/E/Z after each item, plus the store address and VAT Reg. TIN if set.
@@ -55,4 +58,4 @@ Or open the `android` folder in Android Studio and press Run. To install the APK
 
 The app starts with no products: add your own in Products (the register links there when the list is empty). Installs that still have the old sample products (Espresso, Latte, etc.) have them removed once, except any that were sold, held, restocked or renamed.
 
-Data is saved in the browser's `localStorage`, so it stays on the device you use. Money is stored as integer cents to avoid rounding errors. Data saved by earlier versions loads without changes. Refunds are counted on the day they are made.
+Data is saved in the browser's `localStorage`, so it stays on the device you use. Installs from the very first version that still show "$" switch to "₱" once. Money is stored as integer cents to avoid rounding errors. Data saved by earlier versions loads without changes. Refunds are counted on the day they are made.

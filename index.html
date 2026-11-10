@@ -4,24 +4,38 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Simple POS</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Crect width='108' height='108' rx='24' fill='%232563eb'/%3E%3Cg fill='none' stroke='white' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M44 30v48M44 34h14a12 12 0 0 1 0 24H44' stroke-width='8'/%3E%3Cpath d='M34 42h40M34 50h40' stroke-width='4'/%3E%3C/g%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="topbar">
-    <h1>Simple POS</h1>
+  <!-- Left menu (always shown on wide screens, slides out on phones) -->
+  <aside id="sidebar" class="sidebar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">₱</span>
+      <h1 id="store-title">Simple POS</h1>
+    </div>
+    <nav class="menu">
+      <button class="tab active" data-view="register" data-title="Register"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 4h2l2.4 10.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 8H6.2M9 20h.01M17 20h.01"/></svg><span>Register</span></button>
+      <button class="tab" data-view="products" data-title="Products"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 8l-9-5-9 5 9 5 9-5zM3 8v8l9 5 9-5V8M12 13v8"/></svg><span>Products</span> <span id="low-badge" class="badge" hidden></span></button>
+      <button class="tab" data-view="sales" data-title="Sales"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3zM9 8h6M9 12h6M9 16h3"/></svg><span>Sales</span></button>
+      <button class="tab" data-view="customers" data-title="Customers"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 20v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1M9.5 11a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zM21 20v-1a4 4 0 0 0-3-3.9M16 4.1a3.5 3.5 0 0 1 0 6.8"/></svg><span>Customers</span></button>
+      <button class="tab" data-view="shift" data-title="Shift"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2"/></svg><span>Shift</span> <span id="shift-dot" class="dot" hidden></span></button>
+      <button class="tab" data-view="reports" data-title="Reports" data-owner-only><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg><span>Reports</span></button>
+      <button class="tab" data-view="settings" data-title="Settings" data-owner-only><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Settings</span></button>
+    </nav>
     <div class="user-box">
       <span id="user-chip" class="user-chip" hidden></span>
       <button id="logout-btn" class="secondary logout-btn" hidden>Log out</button>
     </div>
-    <nav>
-      <button class="tab active" data-view="register">Register</button>
-      <button class="tab" data-view="products">Products <span id="low-badge" class="badge" hidden></span></button>
-      <button class="tab" data-view="sales">Sales</button>
-      <button class="tab" data-view="customers">Customers</button>
-      <button class="tab" data-view="shift">Shift <span id="shift-dot" class="dot" hidden></span></button>
-      <button class="tab" data-view="reports" data-owner-only>Reports</button>
-      <button class="tab" data-view="settings" data-owner-only>Settings</button>
-    </nav>
+  </aside>
+  <div id="menu-backdrop" class="menu-backdrop" hidden></div>
+
+  <div class="content">
+  <header class="topbar">
+    <button id="menu-btn" class="menu-btn" aria-label="Open menu" aria-controls="sidebar" aria-expanded="false">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <h2 id="page-title">Register</h2>
   </header>
 
   <main>
@@ -353,6 +367,7 @@
       </div>
     </section>
   </main>
+  </div>
 
   <!-- Checkout dialog -->
   <dialog id="checkout-dialog">
